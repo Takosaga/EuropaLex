@@ -1,0 +1,10 @@
+[project]
+name = "europalex"
+version = "0.1.0"
+description = "Generate Anki flashcards for European languages using local AI models"
+requires-python = ">=3.12"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
