@@ -1,2 +1,0 @@
-# EuropaLex Modal Requirements
-# Dependencies for Modal inference endpoints
