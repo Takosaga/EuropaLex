@@ -1,2 +1,191 @@
-/* EuropaLex Custom CSS */
-/* Off-brand styling overrides for Gradio — card-like containers, custom typography */
+/* EuropaLex Custom CSS — Warm Wood Grain Desk Theme */
+
+/* === Page Background: Wood Grain (CSS-only) === */
+body, .gradio-container {
+    background:
+        radial-gradient(ellipse at 50% 10%, rgba(255,248,235,0.12) 0%, transparent 60%),
+        repeating-linear-gradient(90deg, transparent, transparent 3px, rgba(0,0,0,0.025) 3px, rgba(0,0,0,0.025) 4px),
+        repeating-linear-gradient(0deg, transparent, transparent 10px, rgba(101,78,50,0.12) 10px, rgba(101,78,50,0.12) 11px),
+        linear-gradient(135deg, #8B6F47 0%, #A0845C 25%, #7A5E3A 50%, #96784E 75%, #8B6F47 100%);
+    min-height: 100vh;
+}
+
+/* Hide Gradio's default top bar for cleaner look */
+.header {
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+/* === App Container: Frosted Glass Card === */
+.main-app-container {
+    background: rgba(255, 250, 240, 0.92) !important;
+    border-radius: 10px !important;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.2) !important;
+    backdrop-filter: blur(4px);
+    padding: 20px !important;
+}
+
+/* === Input Panel Styling === */
+.input-panel {
+    padding: 10px 0;
+}
+
+.input-panel .form {
+    gap: 12px !important;
+}
+
+/* === Flashcard Gallery Layout === */
+.flashcard-gallery {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    justify-content: center;
+    padding: 16px 0;
+}
+
+/* === Individual Flashcard — Physical Card Look === */
+.flashcard {
+    background: #fffef9 !important;
+    border-radius: 8px !important;
+    padding: 14px 16px !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15), 0 1px 2px rgba(0,0,0,0.1) !important;
+    border: 1px solid #e8dcc8 !important;
+    width: 170px;
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+/* Natural rotation for "spread on desk" feel */
+.flashcard:nth-child(odd) {
+    transform: rotate(-2.5deg);
+}
+.flashcard:nth-child(even) {
+    transform: rotate(1.8deg);
+}
+.flashcard:nth-child(3n) {
+    transform: rotate(0.5deg);
+}
+
+/* Hover: straighten slightly */
+.flashcard:hover {
+    transform: rotate(0deg) scale(1.02);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2) !important;
+    transition: all 0.2s ease;
+}
+
+/* === Card Text Styling === */
+.flashcard .front-text {
+    font-size: 0.95em;
+    font-weight: bold;
+    color: #2a1f0f;
+    margin-bottom: 6px;
+    line-height: 1.35;
+    font-style: italic;
+}
+
+.flashcard .back-text {
+    font-size: 0.78em;
+    color: #6b5e4a;
+    line-height: 1.35;
+    border-top: 1px dotted #d4c5a9;
+    padding-top: 6px;
+}
+
+/* === Media Buttons (Audio + Image) === */
+.flashcard .media-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    align-items: center;
+}
+
+.media-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 50% !important;
+    background: #f0e6d2 !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    cursor: default;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important;
+}
+
+/* === Image Placeholder in Card === */
+.img-placeholder {
+    width: 100%;
+    height: 40px;
+    background: #f0e8d6;
+    border-radius: 6px;
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    border: 1px dashed #d4c5a9;
+}
+
+/* === Export Bar === */
+.export-bar {
+    padding-top: 12px;
+    margin-top: 8px;
+    border-top: 1px solid #e8dcc8;
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+}
+
+.export-btn {
+    padding: 5px 14px !important;
+    background: #d4c5a9 !important;
+    color: #8b7355 !important;
+    border-radius: 6px !important;
+    font-size: 0.75em !important;
+    cursor: default !important;
+    opacity: 0.55 !important;
+    text-decoration: line-through !important;
+    box-shadow: none !important;
+}
+
+.export-btn:hover {
+    opacity: 0.55 !important;
+    transform: none !important;
+}
+
+/* === Section Headers === */
+.section-title {
+    font-family: Georgia, serif;
+    color: #3a2e1f;
+    font-size: 0.9em;
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #d4c5a9;
+}
+
+/* === Generate Button Styling === */
+.generate-btn {
+    background: linear-gradient(135deg, #7a5c3a, #6b4f2e) !important;
+    color: white !important;
+    font-weight: bold;
+    border-radius: 6px !important;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.15) !important;
+}
+
+.generate-btn:hover {
+    background: linear-gradient(135deg, #8a6c4a, #7b5f3e) !important;
+}
+
+/* === Dropdown & Textbox Overrides === */
+.gradio-dropdown, .gradio-textbox {
+    border-radius: 6px !important;
+    border: 1px solid #c4b494 !important;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.05) !important;
+}
+
+/* === Slider Overrides === */
+.gradio-slider {
+    border-radius: 6px !important;
+}
