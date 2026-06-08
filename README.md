@@ -58,7 +58,7 @@ python -m models.download_models --output-dir ./my-models
 ## Repository Structure
 
 ```
-EuropaLex-Space/
+EuropaLex/
 ├── pyproject.toml          # Optional - uv export here
 │   # Or export with: uv export > requirements.txt
 ├── requirements.txt        # ← REQUIRED for pip install
