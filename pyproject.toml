@@ -3,7 +3,10 @@ name = "europalex"
 version = "0.1.0"
 description = "Generate Anki flashcards for European languages using local AI models"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "gradio>=4.0.0",
+    "pyyaml>=6.0",
+]
 
 [build-system]
 requires = ["hatchling"]
