@@ -153,9 +153,7 @@ with gr.Blocks() as demo:
                 gr.Button(".apkg", interactive=False, elem_id="export-btn")
                 gr.Button(".csv", interactive=False, elem_id="export-btn")
                 gr.Button("Sync to Anki", interactive=False, elem_id="export-btn")
-
-    # Right side: empty spacer
-    with gr.Row():
+        # Right side: empty spacer
         gr.Column(scale=1)
 
     generate_btn.click(
