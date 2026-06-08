@@ -37,7 +37,7 @@ Two `gr.Checkbox` toggles in a sub-row within the input panel, between the exist
 
 ### Toggles
 - **Images toggle** — `value=True` (on by default)
-- **Audio toggle** — `value=False` (off by default)
+- **Audio toggle** — `value=True` (on by default)
 - Each has a label with emoji icon: "🖼️ Images" / "🔊 Audio"
 
 ### Visual layout

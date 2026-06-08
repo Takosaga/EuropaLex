@@ -140,7 +140,7 @@ with gr.Blocks() as demo:
             # Media toggles row
             with gr.Row():
                 images_toggle = create_toggle("🖼️ Images", value=True, elem_id="toggle-images")
-                audio_toggle = create_toggle("🔊 Audio", value=False, elem_id="toggle-audio")
+                audio_toggle = create_toggle("🔊 Audio", value=True, elem_id="toggle-audio")
 
             generate_btn = gr.Button("Generate Cards", elem_id="generate-btn")
 
