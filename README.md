@@ -17,11 +17,30 @@ Requires [uv](https://github.com/astral-sh/uv):
 
 ```bash
 uv sync
+# or install from requirements.txt:
+pip install -r requirements.txt
+```
+
+Run the app:
+
+```bash
+python app.py
 ```
 
 ### Model Weights
 
-Models are not included in this repo. Download them manually to `.local/models/`:
+Models are downloaded from Hugging Face Hub at runtime (no git submodules):
+
+```bash
+# Download all models
+python -m models.download_models
+
+# Or download specific models
+python -m models.download_models tilde-open omnivoice
+
+# Custom output directory
+python -m models.download_models --output-dir ./my-models
+```
 
 | Model | HF Hub | Purpose |
 |---|---|---|
@@ -39,18 +58,31 @@ Models are not included in this repo. Download them manually to `.local/models/`
 ## Repository Structure
 
 ```
-EuropaLex/
-├── pyproject.toml          # uv dependency management
-├── core/                   # Shared types, engine protocol, pipeline
-├── models/                 # Git submodules (one per model)
-│   ├── tilde-open/         # TildeOpen-30b text generation
-│   ├── omnivoice/          # OmniVoice TTS
-│   └── flux/               # FLUX.2-klein image generation
-├── frontend/               # Gradio app with custom CSS
-├── export/                 # .apkg generator, CSV export, tunnel sync
-├── configs/                # Settings and common words lists (A0)
-├── scripts/                # Utility scripts (smoke test)
-└── .modal/                 # Modal deployment config
+EuropaLex-Space/
+├── pyproject.toml          # Optional - uv export here
+│   # Or export with: uv export > requirements.txt
+├── requirements.txt        # ← REQUIRED for pip install
+├── app.py                  # ← REQUIRED entry point (or main.py)
+├── core/                   # Your shared modules
+│   ├── __init__.py         # Python package marker
+│   ├── engine.py           # InferenceEngine protocol + implementations
+│   ├── pipeline.py         # Batch generator: text → audio → image
+│   └── types.py            # Card, CardData, CEFRLevel dataclasses
+├── frontend/               # Gradio UI code inside app.py
+│   ├── __init__.py
+│   ├── css/custom.css      # Custom card styling
+│   └── ui/                 # Widget and card components
+├── models/                 # ← Use HF Hub URLs instead of submodules!
+│   ├── __init__.py
+│   └── download_models.py  # Script to fetch from HF Hub at runtime
+├── configs/                # Settings, word lists
+│   └── settings.yaml
+├── export/                 # .apkg generator
+│   ├── __init__.py
+│   ├── apkg_generator.py
+│   ├── csv_export.py
+│   └── anki_tunnel.py
+└── README.md               # Documentation
 ```
 
 ## CEFR Levels

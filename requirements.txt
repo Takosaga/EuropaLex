@@ -1,0 +1,8 @@
+# Generated from pyproject.toml / uv export
+# Regenerate with: uv export > requirements.txt
+
+gradio>=4.0.0
+huggingface-hub>=0.20.0
+llama-cpp-python>=0.2.0
+pyyaml>=6.0
+anki-mcp-server>=0.1.0

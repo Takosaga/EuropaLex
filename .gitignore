@@ -9,8 +9,11 @@ venv/
 dist/
 build/
 
-# Model weights (local)
+# Model weights (local, downloaded from HF Hub)
 .local/models/
+
+# .modal deployment config
+.modal/
 
 # OS
 .DS_Store
