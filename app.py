@@ -85,7 +85,7 @@ def generate_cards(scenario: str, cefr_level: str, batch_size: int) -> str:
 
 CSS_PATH = "frontend/css/custom.css"
 
-with gr.Blocks(css=CSS_PATH, theme=gr.themes.Default()) as demo:
+with gr.Blocks() as demo:
     # Main container for frosted glass effect
     with gr.Column(elem_classes="main-app-container"):
         gr.HTML('<h2 style="color:#3a2e1f; font-family:Georgia,serif; margin-bottom:4px;">EuropaLex</h2>')
@@ -131,4 +131,9 @@ with gr.Blocks(css=CSS_PATH, theme=gr.themes.Default()) as demo:
 
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=7860)
+    demo.launch(
+        server_name="0.0.0.0",
+        server_port=7860,
+        css=CSS_PATH,
+        theme=gr.themes.Default(),
+    )
