@@ -108,30 +108,42 @@ User Input → [Gradio UI] → Inference Engine (TildeOpen) → Pipeline (batch:
 
 ```
 EuropaLex/
-├── pyproject.toml          # Optional - uv export here
-│   # Or export with: uv export > requirements.txt
-├── requirements.txt        # ← REQUIRED for pip install
-├── app.py                  # ← REQUIRED entry point (or main.py)
-├── core/                   # Your shared modules
-│   ├── __init__.py         # Python package marker
-│   ├── engine.py           # InferenceEngine protocol + implementations
-│   ├── pipeline.py         # Batch generator: text → audio → image
-│   └── types.py            # Card, CardData, CEFRLevel dataclasses
-├── frontend/               # Gradio UI code inside app.py
+├── app.py                  # Entry point — Gradio UI wiring, two-phase generation handlers
+├── pyproject.toml          # Project config (uv)
+├── requirements.txt        # pip install dependencies
+├── uv.lock                 # uv lock file
+├── .gitignore
+├── README.md               # This file
+├── AGENTS.md               # AI agent conventions guide
+├── core/                   # Shared business logic
 │   ├── __init__.py
-│   ├── css/custom.css      # Custom card styling
-│   └── ui/                 # Widget and card components
-├── models/                 # ← Use HF Hub URLs instead of submodules!
+│   ├── types.py            # Card, CardData, CEFRLevel dataclasses
+│   ├── engine.py           # InferenceEngine protocol + LocalInference/ModalInference
+│   └── pipeline.py         # Batch generator: text → audio → image orchestrator
+├── frontend/               # Gradio 6 UI
 │   ├── __init__.py
-│   └── download_models.py  # Script to fetch from HF Hub at runtime
-├── configs/                # Settings, word lists
-│   └── settings.yaml
-├── export/                 # .apkg generator
+│   ├── ui/
+│   │   ├── __init__.py
+│   │   ├── widgets.py      # Styled toggle checkbox wrappers
+│   │   └── cards.py        # Card rendering, gallery layout, progress bar
+│   └── css/
+│       └── custom.css      # Plain-white theme, card styling, disabled states
+├── models/                 # Model management
 │   ├── __init__.py
-│   ├── apkg_generator.py
-│   ├── csv_export.py
-│   └── anki_tunnel.py
-└── README.md               # Documentation
+│   └── download_models.py  # HF Hub model downloader (runtime)
+├── configs/                # Configuration
+│   └── settings.yaml       # App settings, word lists
+├── export/                 # Export formats
+│   ├── __init__.py
+│   ├── apkg_generator.py   # Anki .apkg package builder
+│   ├── csv_export.py       # CSV export utility
+│   └── anki_tunnel.py      # MCP tunnel sync for live Anki import
+├── docs/                   # Design specs and implementation plans
+│   └── superpowers/
+│       ├── specs/          # Design specification documents
+│       └── plans/          # Implementation plans
+└── scripts/                # Utility scripts
+    └── smoke_test.py       # Quick sanity check script
 ```
 
 ## CEFR Levels
