@@ -26,7 +26,7 @@ pip install -r requirements.txt
 Run the app:
 
 ```bash
-python app.py
+uv run app.py
 ```
 
 ### Model Weights
@@ -35,15 +35,15 @@ All models are GGUF format, downloaded from Hugging Face Hub at runtime (no git 
 
 ```bash
 # Download all models
-python -m models.download_models
+uv run python -m models.download_models
 
 # Or download specific models
-python -m models.download_models nemotron tildeopen  # Text generation only (~36 GB)
-python -m models.download_models omnivoice           # TTS only (~945 MB)
-python -m models.download_models flux                # Image gen only (~2.6 GB)
+uv run python -m models.download_models nemotron tildeopen  # Text generation only (~36 GB)
+uv run python -m models.download_models omnivoice           # TTS only (~945 MB)
+uv run python -m models.download_models flux                # Image gen only (~2.6 GB)
 
 # Custom output directory
-python -m models.download_models --output-dir ./my-models
+uv run python -m models.download_models --output-dir ./my-models
 ```
 
 | Model | HF Hub Repo | GGUF File | Runtime | Size |
