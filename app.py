@@ -201,14 +201,15 @@ with gr.Blocks() as demo:
         return gr.Checkbox(interactive=True), gr.Checkbox(interactive=True), gr.Button(interactive=True)
 
     def _reset_to_idle():
-        """Reset UI to idle state when user changes parameters."""
+        """Reset UI to idle state when user changes parameters.
+
+        Only resets toggle/button interactivity — keeps cards visible
+        so the user can regenerate without losing their work.
+        """
         return (
-            gr.Button(interactive=True),
             gr.Checkbox(interactive=False),
             gr.Checkbox(interactive=False),
             gr.Button(interactive=False, variant="secondary"),
-            "",  # clear card output
-            "",  # clear progress
         )
 
     generate_text_btn.click(
@@ -231,10 +232,10 @@ with gr.Blocks() as demo:
         outputs=[generate_text_btn, generate_cards_btn],
     )
 
-    # Reset when user changes any input parameter
-    scenario_input.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, card_output, progress_html])
-    cefr_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, card_output, progress_html])
-    batch_slider.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, card_output, progress_html])
+    # Reset toggles and phase-2 button when user changes any input parameter
+    scenario_input.change(_reset_to_idle, inputs=[], outputs=[images_toggle, audio_toggle, generate_cards_btn])
+    cefr_dropdown.change(_reset_to_idle, inputs=[], outputs=[images_toggle, audio_toggle, generate_cards_btn])
+    batch_slider.change(_reset_to_idle, inputs=[], outputs=[images_toggle, audio_toggle, generate_cards_btn])
 
 
 if __name__ == "__main__":
