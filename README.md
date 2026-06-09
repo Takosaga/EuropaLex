@@ -29,6 +29,18 @@ Run the app:
 uv run app.py
 ```
 
+> **Dependencies:** This project requires PyTorch, diffusers, omnivoice, pydantic, and soundfile in addition to Gradio. These are installed automatically by `uv sync`.
+
+### Running Smoke Tests
+
+Before committing, verify all modules load correctly:
+
+```bash
+uv run python scripts/smoke_test.py
+```
+
+This checks imports for core types, engine classes, frontend UI, and the app module.
+
 ### Model Weights
 
 All models are GGUF format, downloaded from Hugging Face Hub at runtime (no git submodules). Each model uses a different runtime:
@@ -105,10 +117,15 @@ EuropaLex is organized into five main modules:
 ### Data Flow
 
 ```
-User Input → [Gradio UI] → Inference Engine (TildeOpen) → Pipeline (batch: text→audio→image) → Card Gallery → Export (.apkg / .csv)
+User Input → [Gradio UI] → EnginePool (singleton) → TextEngine/TTS/ImageGen → Card Gallery → Export (.apkg / .csv)
 ```
 
-- **Inference:** `core/engine.py` defines the `InferenceEngine` protocol. Implementations (`LocalInference`, `ModalInference`) wrap llama.cpp or Modal-hosted endpoints.
+- **Inference:** `core/engine.py` defines four engine classes:
+  - `TextEngine` — llama-cli subprocess wrapper for Nemotron and TildeOpen (stateless, spawns fresh process per call)
+  - `TTSEngine` — OmniVoice Python package with lazy-load/unload cycle (GPU memory managed by EnginePool)
+  - `ImageGenEngine` — diffusers Flux2KleinPipeline with lazy-load/unload cycle (GPU memory managed by EnginePool)
+  - `EnginePool` — singleton orchestrator enforcing mutual exclusion between GPU engines
+- **Types:** `core/types.py` provides Pydantic models (`CardData`, `CEFRLevel`, `TextResult`, `AudioResult`, `ImageResult`, `EngineConfig`) for type-safe boundaries.
 - **Pipeline:** `core/pipeline.py` orchestrates batch generation — text first, then audio and images in parallel based on toggle state.
 - **Frontend:** `frontend/ui/cards.py` renders individual cards as HTML with conditional media elements; `generate_cards_html()` layouts them in a flex gallery with natural rotation offsets.
 - **Export:** `export/apkg_generator.py` builds Anki packages; `export/csv_export.py` writes tabular data; `export/anki_tunnel.py` communicates with the Anki MCP tunnel server.
@@ -126,8 +143,8 @@ EuropaLex/
 ├── AGENTS.md               # AI agent conventions guide
 ├── core/                   # Shared business logic
 │   ├── __init__.py
-│   ├── types.py            # Card, CardData, CEFRLevel dataclasses
-│   ├── engine.py           # InferenceEngine protocol + LocalInference/ModalInference
+│   ├── types.py            # Pydantic models: CardData, CEFRLevel, TextResult, AudioResult, ImageResult, EngineConfig
+│   ├── engine.py           # TextEngine (llama-cli), TTSEngine (OmniVoice), ImageGenEngine (diffusers), EnginePool singleton
 │   └── pipeline.py         # Batch generator: text → audio → image orchestrator
 ├── frontend/               # Gradio 6 UI
 │   ├── __init__.py
