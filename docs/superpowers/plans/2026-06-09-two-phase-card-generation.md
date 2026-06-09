@@ -194,7 +194,7 @@ def generate_cards_html(
 
 - [ ] **Step 3: Verify the module imports cleanly**
 
-Run: `cd /home/takosaga/Projects/EuropaLex && python -c "from frontend.ui.cards import render_card_html, generate_cards_html; print('OK')"`
+Run: `cd EuropaLex && python -c "from frontend.ui.cards import render_card_html, generate_cards_html; print('OK')"`
 Expected: `OK` with no errors.
 
 - [ ] **Step 4: Commit**
@@ -252,7 +252,7 @@ def create_toggle(label: str, value: bool = True, elem_id: str = "", interactive
 
 - [ ] **Step 2: Verify the module imports cleanly**
 
-Run: `cd /home/takosaga/Projects/EuropaLex && python -c "from frontend.ui.widgets import create_toggle; print('OK')"`
+Run: `cd EuropaLex && python -c "from frontend.ui.widgets import create_toggle; print('OK')"`
 Expected: `OK` with no errors.
 
 - [ ] **Step 3: Commit**
@@ -491,12 +491,12 @@ Key changes in the UI:
 
 - [ ] **Step 4: Verify Python syntax**
 
-Run: `cd /home/takosaga/Projects/EuropaLex && python -c "import ast; ast.parse(open('app.py').read()); print('Syntax OK')"`
+Run: `cd EuropaLex && python -c "import ast; ast.parse(open('app.py').read()); print('Syntax OK')"`
 Expected: `Syntax OK`
 
 - [ ] **Step 5: Verify imports work**
 
-Run: `cd /home/takosaga/Projects/EuropaLex && python -c "from frontend.ui.cards import render_card_html, generate_cards_html, generate_progress_html; from frontend.ui.widgets import create_toggle; print('Imports OK')"`
+Run: `cd EuropaLex && python -c "from frontend.ui.cards import render_card_html, generate_cards_html, generate_progress_html; from frontend.ui.widgets import create_toggle; print('Imports OK')"`
 Expected: `Imports OK`
 
 - [ ] **Step 6: Commit**
@@ -518,7 +518,7 @@ Toggles disabled between phases. Input changes reset to idle state."
 
 - [ ] **Step 1: Run the Gradio app and test the flow**
 
-Run: `cd /home/takosaga/Projects/EuropaLex && python app.py`
+Run: `cd EuropaLex && python app.py`
 
 Test sequence in browser (http://localhost:7860):
 1. Enter a scenario (e.g., "ordering coffee"), select CEFR level B1, set batch to 3

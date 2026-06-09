@@ -458,7 +458,7 @@ git commit -m "deps: update requirements.txt for frontend-only demo"
 - [ ] **Step 1: Sync dependencies with uv**
 
 ```bash
-cd /home/takosaga/Projects/EuropaLex
+cd EuropaLex
 uv sync
 ```
 

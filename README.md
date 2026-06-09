@@ -2,6 +2,8 @@
 
 Generate Anki flashcards for European languages using local AI models. Starting with Latvian, designed to support any language available through TildeOpen.
 
+> **Note:** All commands and paths in this document are relative to the `EuropaLex/` project root. Assume you are already inside this directory.
+
 ## Hackathon Criteria
 
 - **Off-Brand** — Custom CSS pushes past the default Gradio look; styled card widgets resembling physical flashcards

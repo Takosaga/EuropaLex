@@ -54,7 +54,7 @@ Read the current `README.md`, find the end of the CEFR Levels section, and appen
 - [ ] **Step 2: Verify README.md renders correctly**
 
 ```bash
-cat /home/takosaga/Projects/EuropaLex/README.md | head -120
+cat README.md | head -120
 ```
 
 Check that:
@@ -66,7 +66,7 @@ Check that:
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /home/takosaga/Projects/EuropaLex
+cd EuropaLex
 git add README.md
 git commit -m "docs: add Workflow section to README"
 ```
@@ -114,7 +114,7 @@ Read `README.md`, find the end of the Workflow section (the horizontal rule `---
 - [ ] **Step 2: Verify README.md renders correctly**
 
 ```bash
-cat /home/takosaga/Projects/EuropaLex/README.md | head -160
+cat README.md | head -160
 ```
 
 Check that:
@@ -126,7 +126,7 @@ Check that:
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /home/takosaga/Projects/EuropaLex
+cd EuropaLex
 git add README.md
 git commit -m "docs: add Architecture section to README"
 ```
@@ -191,7 +191,7 @@ Read `README.md`, find the existing `## Repository Structure` header and its cod
 - [ ] **Step 2: Verify README.md is correct**
 
 ```bash
-cat /home/takosaga/Projects/EuropaLex/README.md | tail -60
+cat README.md | tail -60
 ```
 
 Check that:
@@ -202,7 +202,7 @@ Check that:
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /home/takosaga/Projects/EuropaLex
+cd EuropaLex
 git add README.md
 git commit -m "docs: update Repository Structure to match current layout"
 ```
@@ -271,12 +271,12 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 
 - [ ] **Step 1: Write AGENTS.md with Project Overview and Code Structure sections**
 
-Create `/home/takosaga/Projects/EuropaLex/AGENTS.md` with the content above.
+Create `AGENTS.md` with the content above.
 
 - [ ] **Step 2: Verify file exists and is valid markdown**
 
 ```bash
-head -60 /home/takosaga/Projects/EuropaLex/AGENTS.md
+head -60 AGENTS.md
 ```
 
 Check that:
@@ -288,7 +288,7 @@ Check that:
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /home/takosaga/Projects/EuropaLex
+cd EuropaLex
 git add AGENTS.md
 git commit -m "docs: add AGENTS.md — AI agent conventions (overview + structure)"
 ```
@@ -393,7 +393,7 @@ Read the current `AGENTS.md`, find the end of the Code Structure section, and ap
 - [ ] **Step 2: Verify AGENTS.md is complete**
 
 ```bash
-wc -l /home/takosaga/Projects/EuropaLex/AGENTS.md && tail -30 /home/takosaga/Projects/EuropaLex/AGENTS.md
+wc -l AGENTS.md && tail -30 AGENTS.md
 ```
 
 Check that:
@@ -404,7 +404,7 @@ Check that:
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /home/takosaga/Projects/EuropaLex
+cd EuropaLex
 git add AGENTS.md
 git commit -m "docs: add AGENTS.md — code conventions and frontend patterns"
 ```
@@ -550,7 +550,7 @@ Read the current `AGENTS.md`, find the end of the Frontend Patterns section, and
 - [ ] **Step 2: Verify AGENTS.md is complete and consistent**
 
 ```bash
-wc -l /home/takosaga/Projects/EuropaLex/AGENTS.md && grep "^## " /home/takosaga/Projects/EuropaLex/AGENTS.md
+wc -l AGENTS.md && grep AGENTS.md
 ```
 
 Check that:
@@ -561,7 +561,7 @@ Check that:
 - [ ] **Step 3: Final commit**
 
 ```bash
-cd /home/takosaga/Projects/EuropaLex
+cd EuropaLex
 git add AGENTS.md
 git commit -m "docs: add AGENTS.md — core rules, testing, feature checklist, git workflow, pitfalls"
 ```
@@ -576,7 +576,7 @@ git commit -m "docs: add AGENTS.md — core rules, testing, feature checklist, g
 - [ ] **Step 1: Full README verification**
 
 ```bash
-grep "^## " /home/takosaga/Projects/EuropaLex/README.md
+grep README.md
 ```
 
 Expected section order:
@@ -590,7 +590,7 @@ Expected section order:
 - [ ] **Step 2: Full AGENTS.md verification**
 
 ```bash
-grep "^## \|^### " /home/takosaga/Projects/EuropaLex/AGENTS.md
+grep AGENTS.md
 ```
 
 Expected section order:
@@ -607,7 +607,7 @@ Expected section order:
 - [ ] **Step 3: Smoke test**
 
 ```bash
-cd /home/takosaga/Projects/EuropaLex && python scripts/smoke_test.py
+cd EuropaLex && python scripts/smoke_test.py
 ```
 
 Expected: clean exit with no errors.
@@ -617,7 +617,7 @@ Expected: clean exit with no errors.
 If steps 1-3 reveal issues, fix them and commit. If everything passes:
 
 ```bash
-cd /home/takosaga/Projects/EuropaLex
+cd EuropaLex
 git log --oneline -5
 ```
 

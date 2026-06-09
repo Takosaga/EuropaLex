@@ -1,5 +1,7 @@
 # EuropaLex — AI Agent Conventions
 
+**Working directory:** All paths, commands, and file references below are relative to the `EuropaLex/` project root. Assume you are already inside this directory — do not `cd` into or out of it.
+
 Guidelines for AI coding agents working on this codebase. Follow these conventions to produce changes that integrate cleanly.
 
 ## Project Overview
