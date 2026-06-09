@@ -1,6 +1,5 @@
 # Model weights — large binary downloads, not tracked in git
 .local/models/
-models/
 
 # Virtual environment
 .venv/
