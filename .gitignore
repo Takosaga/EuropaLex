@@ -1,24 +1,19 @@
-# Python / uv
-__pycache__/
-*.py[cod]
-*.so
-.env
+# Model weights — large binary downloads, not tracked in git
+.local/models/
+models/
+
+# Virtual environment
 .venv/
 venv/
-*.egg-info/
-dist/
-build/
 
-# Model weights (local, downloaded from HF Hub)
-.local/models/
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
 
-# .modal deployment config
-.modal/
+# Gradio cache
+.gradio/
 
-# OS
+# OS files
 .DS_Store
 Thumbs.db
-
-# IDE
-.vscode/
-.idea/
