@@ -183,14 +183,18 @@ with gr.Blocks() as demo:
     def _handle_text_generation(scenario, cefr_level, batch_size):
         """Wrapper for generate_text_async that handles empty scenario."""
         if not scenario.strip():
-            return generate_progress_html(0, "⚠️ Please enter a scenario or topic."), '<div style="color:#c44; padding:20px;">Please enter a scenario or topic to generate cards.</div>'
-        return generate_text_async(scenario, cefr_level, batch_size)
+            yield generate_progress_html(0, "⚠️ Please enter a scenario or topic."), '<div style="color:#c44; padding:20px;">Please enter a scenario or topic to generate cards.</div>'
+            return
+        for result in generate_text_async(scenario, cefr_level, batch_size):
+            yield result
 
     def _handle_media_generation(scenario, cefr_level, batch_size, images_on, audio_on):
         """Wrapper for generate_media_async that handles empty scenario."""
         if not scenario.strip():
-            return generate_progress_html(0, "⚠️ Please enter a scenario or topic."), '<div style="color:#c44; padding:20px;">Please enter a scenario or topic to generate cards.</div>'
-        return generate_media_async(scenario, cefr_level, batch_size, images_on, audio_on)
+            yield generate_progress_html(0, "⚠️ Please enter a scenario or topic."), '<div style="color:#c44; padding:20px;">Please enter a scenario or topic to generate cards.</div>'
+            return
+        for result in generate_media_async(scenario, cefr_level, batch_size, images_on, audio_on):
+            yield result
 
     def _enable_phase2():
         """After text generation, enable toggles and Generate Cards button."""
