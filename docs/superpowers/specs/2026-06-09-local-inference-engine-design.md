@@ -97,8 +97,20 @@ class TextEngine:
     def generate(self, texts: list[str], scenario: str, cefr_level: CEFRLevel) -> TextResult: ...
 ```
 
-**Invocation:** `llama-cli -m <model> -p <prompt> -n <tokens> --temp 0.7`  
-The prompt includes the scenario, CEFR level, and requested translations in a structured format (e.g., JSON array). Output is parsed into `TextResult`.
+**Invocation:** `llama-cli -m <tildeopen_gguf> -p <prompt> -n 512 --temp 0.7 -ngl 99`
+The prompt is a structured template:
+
+```
+You are a translator. Translate the following {cefr_level} text into the target language.
+Scenario: {scenario}
+Translate these sentences, one per line, in order:
+{text_lines}
+Output ONLY the translations, one per line. No explanations.
+```
+
+llama-cli outputs plain text (one translation per line). Output is split by newlines and wrapped in `TextResult`.
+
+**Note:** `-ngl 99` offloads all layers to GPU. TildeOpen GGUF path comes from settings.yaml (`models.tildeopen.file`).
 
 **No load/unload needed.** llama-cli is a stateless subprocess — it exits after generating output. No VRAM persists between calls.
 
@@ -120,17 +132,19 @@ class TTSEngine:
 
 #### `ImageGenEngine`
 
-Uses `diffusers.Flux2KleinPipeline` with `from_single_file()` for GGUF loading. Loads model on first access, unloads after generation.
+Uses `diffusers.Flux2KleinPipeline.from_pretrained()` loading the base model repo (`black-forest-labs/FLUX.2-klein-4B`) from HF Hub on first access. Unloads after generation.
 
 ```python
 class ImageGenEngine:
-    def __init__(self, gguf_path: str, device: str = "cuda"): ...
+    def __init__(self, device: str = "cuda"): ...
     def _load_pipeline(self) -> None: ...  # Lazy load on first use
     def generate(self, prompts: list[str], output_dir: Path) -> ImageResult: ...
     def unload(self) -> None: ...           # del pipeline + torch.cuda.empty_cache()
 ```
 
-**Invocation:** `pipe(prompt=prompt, num_inference_steps=...)` → returns PIL images. Each saved as `.png`.
+**Invocation:** `pipe(prompt=prompt, num_inference_steps=28, guidance_scale=3.5)` → returns list of PIL images. Each saved as `.png`.
+
+**Prompt generation:** Each card's prompt is constructed from its English text + translation: `{translation}. Scene: {text}. Illustrative, educational style.`
 
 **Lifecycle:** Same pattern as TTSEngine — lazy load, batch inference, unload.
 
@@ -140,22 +154,35 @@ Manages mutual exclusion between engines.
 
 ```python
 class EnginePool:
+    """Singleton managing mutual exclusion between inference engines.
+
+    Factory pattern via classmethod — callers use EnginePool.get(config) to
+    obtain (or create) the singleton instance.
+    """
     _instance: ClassVar[EnginePool | None] = None
 
-    def __init__(self, config: EngineConfig): ...
+    @classmethod
+    def get(cls, config: EngineConfig) -> "EnginePool": ...
 
     def get_text_engine(self) -> TextEngine: ...
     def get_tts_engine(self) -> TTSEngine: ...
     def get_image_engine(self) -> ImageGenEngine: ...
 
     def _ensure_exclusive(self, target: str) -> None:
-        """Unload any loaded engine except the target."""
+        """Unload any loaded engine except the target. Called before each get_*()."""
+        if target == "text":
+            self._unload_tts()
+            self._unload_image()
+        elif target == "tts":
+            self._unload_image()
+        elif target == "image":
+            self._unload_tts()
 ```
 
 **Behavior:**
-- `get_text_engine()` — always returns a new TextEngine (no VRAM to free). Clears TTS and image engines if active.
-- `get_tts_engine()` — unloads TextEngine (N/A, it's subprocess), unloads ImageGenEngine if active, then loads TTSEngine.
-- `get_image_engine()` — unloads TextEngine (N/A), unloads TTSEngine if active, then loads ImageGenEngine.
+- `get_text_engine()` — returns a new TextEngine each time (no VRAM to free). Clears TTS and image engines.
+- `get_tts_engine()` — unloads ImageGenEngine if active, then lazy-loads TTSEngine.
+- `get_image_engine()` — unloads TTSEngine if active, then lazy-loads ImageGenEngine.
 
 **Thread safety:** Not required. Gradio handlers run sequentially in a single thread.
 
