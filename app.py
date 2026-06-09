@@ -131,8 +131,8 @@ with gr.Blocks() as demo:
     with gr.Row():
         gr.Column(scale=1)
         with gr.Column(scale=3, elem_id="app-card"):
-            gr.HTML('<h2 style="color:#3a2e1f; font-family:Georgia,serif; margin-bottom:4px;">EuropaLex</h2>')
-            gr.HTML('<p style="color:#6b5e4a; font-size:0.8em; margin-top:-4px; margin-bottom:12px;">Generate Anki flashcards for European languages</p>')
+            gr.HTML('<h2 style="color:#1a1a1a; font-family:sans-serif; margin-bottom:4px;">EuropaLex</h2>')
+            gr.HTML('<p style="color:#666; font-size:0.8em; margin-top:-4px; margin-bottom:12px;">Generate Anki flashcards for European languages</p>')
 
             with gr.Row():
                 scenario_input = gr.Textbox(
