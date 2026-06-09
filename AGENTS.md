@@ -11,9 +11,12 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 **Tech Stack:**
 - Python 3.12+
 - Gradio 6 (frontend UI)
+- Pydantic >=2.0.0 (type-safe data models)
 - llama-cli (text generation: Nemotron-3-Nano + TildeOpen, GGUF format)
-- omnivoice.cpp (TTS: OmniVoice Q8_0, GGUF format)
-- ComfyUI-GGUF / diffusers (image gen: FLUX.2-klein 4B, GGUF format)
+- omnivoice (PyPI package, lazy-load/unload via EnginePool)
+- diffusers >=0.28.0 (image gen: FLUX.2-klein 4B, lazy-load/unload via EnginePool)
+- torch >=2.1.0 (PyTorch backend for TTS and image generation)
+- soundfile >=0.12.0 (WAV audio I/O for TTS output)
 - uv (dependency management), Hugging Face Hub (model weights)
 
 **Models:**
@@ -25,11 +28,11 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 | FLUX.2-klein 4B Q4_K_M | [unsloth/FLUX.2-klein-4B-GGUF](https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF) | ComfyUI-GGUF / diffusers |
 
 **Architecture at a glance:**
-- `core/` — types, inference engine, batch pipeline
+- `core/` — Pydantic types (`types.py`), four engine classes + EnginePool singleton (`engine.py`), batch pipeline (`pipeline.py`)
 - `frontend/` — Gradio UI: widgets, card rendering, custom CSS
 - `models/` — HF Hub model downloader
 - `export/` — .apkg generator, CSV export, Anki tunnel sync
-- `app.py` — entry point, wires everything together
+- `app.py` — entry point, wires everything together (uses mock data until engines are fully integrated)
 
 ## Code Structure
 
@@ -62,7 +65,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 ### Naming
 
 - **Modules (lowercase, underscore):** `apkg_generator`, `anki_tunnel`, `download_models`
-- **Classes (PascalCase):** `InferenceEngine`, `CardData`, `CEFRLevel`, `LocalInference`
+- **Classes (PascalCase):** `CardData`, `CEFRLevel`, `TextEngine`, `TTSEngine`, `ImageGenEngine`, `EnginePool`, `InferenceEngine` (legacy protocol)
 - **Functions/variables (snake_case):** `render_card_html`, `generate_cards_html`, `batch_size`
 - **Constants (UPPER_SNAKE_CASE):** None currently needed; keep config in YAML
 
@@ -76,10 +79,12 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 ### Data Flow Through the App
 
 ```
-User input → app.py click handler → core/engine.py inference → core/pipeline.py batching → frontend/ui/cards.py rendering → Gradio output
+User input → app.py click handler → EnginePool.get(config) → TextEngine/TTSEngine/ImageGenEngine → frontend/ui/cards.py rendering → Gradio output
 ```
 
 When adding a new feature, follow this chain. Don't bypass `pipeline.py` — even single-card generation should go through it for consistency.
+
+**EnginePool singleton:** All GPU engines (TTSEngine, ImageGenEngine) are managed by `EnginePool`, which enforces mutual exclusion — only one GPU model loaded at a time. Text engines (`TextEngine`) are subprocess-based and stateless.
 
 ## Frontend Patterns
 
@@ -145,23 +150,41 @@ Return empty string (`""`) when `percent <= 0` — Gradio will hide the element.
 
 ### types.py
 
-The canonical data shapes. If you add a new field to `CardData` or `CEFRLevel`, update it here first and propagate changes everywhere that consumes these types.
+The canonical data shapes — **all Pydantic models**, not dataclasses. If you add a new field to `CardData` or `CEFRLevel`, update it here first and propagate changes everywhere that consumes these types.
 
 ```python
-# Template — match this structure:
-@dataclass
-class CardData:
+# Template — match this structure (Pydantic BaseModel):
+class CardData(BaseModel):
     text: str              # English source text
     translation: str       # Target-language translation (empty during Phase 1)
-    audio_path: str | None = None   # Path to generated TTS audio
-    image_path: str | None = None   # Path to generated illustration
+    audio_path: str | None = None   # Path to generated TTS audio (.wav)
+    image_path: str | None = None   # Path to generated illustration (.png)
+    cefr_level: CEFRLevel = CEFRLevel.B1  # Proficiency level
 ```
+
+Other Pydantic models:
+- `CEFRLevel(str, Enum)` — A0 through C2 proficiency levels
+- `TextResult` — `{translations: list[str]}` from text generation
+- `AudioResult` — `{audio_paths: list[str]}` from TTS
+- `ImageResult` — `{image_paths: list[str]}` from image generation
+- `EngineConfig(BaseModel)` — validated config from `configs/settings.yaml`
 
 ### engine.py
 
-The `InferenceEngine` protocol defines the interface. Implementations wrap different backends (local llama.cpp vs Modal-hosted). **Rules:**
-- Never bypass the protocol — all inference goes through `InferenceEngine.generate()` or equivalent.
-- Each implementation should be self-contained. Don't share state between `LocalInference` and `ModalInference`.
+Four concrete engine classes replace the legacy `InferenceEngine` protocol:
+
+| Class | Backend | Lifecycle |
+|---|---|---|
+| `TextEngine` | llama-cli subprocess | Stateless — spawns fresh process per `.generate()` call |
+| `TTSEngine` | omnivoice (PyTorch) | Lazy-load on first `.synthesize()`, unload after completion |
+| `ImageGenEngine` | diffusers Flux2KleinPipeline (PyTorch) | Lazy-load on first `.generate()`, unload after completion |
+| `EnginePool` | Singleton factory | Manages mutual exclusion between TTSEngine and ImageGenEngine |
+
+**Rules:**
+- All inference goes through `EnginePool.get(config)` — never instantiate engines directly in app code.
+- GPU engines (TTSEngine, ImageGenEngine) are lazy-loaded and unloaded via `del` + `torch.cuda.empty_cache()`.
+- Text engines spawn subprocesses — no persistent VRAM consumption.
+- Each engine class should be self-contained. Don't share state between implementations.
 
 ### pipeline.py
 
