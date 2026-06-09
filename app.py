@@ -164,10 +164,13 @@ with gr.Blocks() as demo:
 
             # Phase 2 controls: toggles + button (below cards)
             with gr.Row():
-                images_toggle = create_toggle("🖼️ Images", value=True, elem_id="toggle-images", interactive=False)
-                audio_toggle = create_toggle("🔊 Audio", value=True, elem_id="toggle-audio", interactive=False)
+                images_toggle = create_toggle("🖼️ Images", value=True, elem_id="toggle-images")
+                audio_toggle = create_toggle("🔊 Audio", value=True, elem_id="toggle-audio")
 
-            generate_cards_btn = gr.Button("Generate Cards", elem_id="generate-btn", variant="secondary")
+            generate_cards_btn = gr.Button("Generate Cards", elem_id="generate-cards-btn", variant="secondary")
+
+            # Dynamic CSS block — toggled to disable phase-2 controls until text generation completes
+            phase_css = gr.HTML(f"""<style id="phase-css">#toggle-images, #toggle-audio {{ opacity: 0.45; pointer-events: none; cursor: not-allowed; }} #generate-cards-btn {{ opacity: 0.45; pointer-events: none; cursor: not-allowed; }}</style>""")
 
             progress_html = gr.HTML(label="Progress")
 
@@ -197,8 +200,8 @@ with gr.Blocks() as demo:
             yield result
 
     def _enable_phase2():
-        """After text generation, enable toggles and Generate Cards button."""
-        return gr.Checkbox(interactive=True), gr.Checkbox(interactive=True), gr.Button(interactive=True)
+        """After text generation, enable toggles and Generate Cards button by removing disabled CSS."""
+        return gr.Checkbox(interactive=True), gr.Checkbox(interactive=True), gr.Button(interactive=True), ""
 
     def _reset_to_idle():
         """Reset UI to idle state when user changes parameters.
@@ -206,12 +209,14 @@ with gr.Blocks() as demo:
         Only resets toggle/button interactivity — keeps cards visible
         so the user can regenerate without losing their work.
         Also restores both buttons visibility (hidden by Phase 2).
+        Re-applies disabled CSS to phase-2 controls.
         """
         return (
             gr.Button(visible=True, interactive=True),
             gr.Checkbox(interactive=False),
             gr.Checkbox(interactive=False),
             gr.Button(visible=True, interactive=False, variant="secondary"),
+            """<style id="phase-css">#toggle-images, #toggle-audio { opacity: 0.45; pointer-events: none; cursor: not-allowed; } #generate-cards-btn { opacity: 0.45; pointer-events: none; cursor: not-allowed; }</style>""",
         )
 
     generate_text_btn.click(
@@ -221,7 +226,7 @@ with gr.Blocks() as demo:
     ).then(
         fn=_enable_phase2,
         inputs=[],
-        outputs=[images_toggle, audio_toggle, generate_cards_btn],
+        outputs=[images_toggle, audio_toggle, generate_cards_btn, phase_css],
     )
 
     generate_cards_btn.click(
@@ -235,9 +240,9 @@ with gr.Blocks() as demo:
     )
 
     # Reset toggles and both buttons when user changes any input parameter
-    scenario_input.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn])
-    cefr_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn])
-    batch_slider.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn])
+    scenario_input.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css])
+    cefr_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css])
+    batch_slider.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css])
 
 
 if __name__ == "__main__":
