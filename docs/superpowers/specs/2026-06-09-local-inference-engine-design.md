@@ -189,11 +189,13 @@ class EnginePool:
 ### 3. Integration with Existing Code
 
 **`app.py` changes:**
-- Replace `MOCK_CARDS` with calls to `TextEngine.generate()`.
+- Replace `MOCK_CARDS` with calls to `EnglishTextEngine.generate()` (Phase 1 step 1) and `TranslationEngine.translate()` (Phase 1 step 2).
 - Replace mock media rendering with calls to `TTSEngine.synthesize()` and `ImageGenEngine.generate()`.
 - Create `EnginePool(config)` at startup.
 
 **`pipeline.py` remains unchanged for now.** It orchestrates the batch flow; it will consume the engine results but doesn't need to know about loading/unloading — that's EnginePool's responsibility.
+
+**`.apkg` export:** Handled externally via an MCP server, not within engine.py scope.
 
 ### 4. Error Handling
 
