@@ -31,25 +31,32 @@ python app.py
 
 ### Model Weights
 
-Models are downloaded from Hugging Face Hub at runtime (no git submodules):
+All models are GGUF format, downloaded from Hugging Face Hub at runtime (no git submodules). Each model uses a different runtime:
 
 ```bash
 # Download all models
 python -m models.download_models
 
 # Or download specific models
-python -m models.download_models tilde-open omnivoice
+python -m models.download_models nemotron tildeopen  # Text generation only (~36 GB)
+python -m models.download_models omnivoice           # TTS only (~945 MB)
+python -m models.download_models flux                # Image gen only (~2.6 GB)
 
 # Custom output directory
 python -m models.download_models --output-dir ./my-models
 ```
 
-| Model | HF Hub | Purpose |
-|---|---|---|
-| Nemotron-3-Nano-30B-A3B-GGUF | [unsloth/Nemotron-3-Nano-30B-A3B-GGUF](https://huggingface.co/unsloth/Nemotron-3-Nano-30B-A3B-GGUF) | General inference via llama.cpp runtime |
-| TildeOpen-30b | [TildeAI/TildeOpen-30b](https://huggingface.co/TildeAI/TildeOpen-30b) | Generate target-language text at CEFR levels |
-| OmniVoice | [k2-fsa/OmniVoice](https://huggingface.co/k2-fsa/OmniVoice) | Text-to-speech for card audio |
-| FLUX.2-klein-4B | [black-forest-labs/FLUX.2-klein-4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B) | Generate illustrative images for cards |
+| Model | HF Hub Repo | GGUF File | Runtime | Size |
+|---|---|---|---|---|
+| Nemotron-3-Nano 30B-A3B IQ4_XS | [bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF](https://huggingface.co/bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF) | `Nemotron-3-Nano-30B-A3B-IQ4_XS.gguf` | llama-cli | 18.1 GB |
+| TildeOpen-30b Q4_K_S | [bartowski/TildeAI_TildeOpen-30b-GGUF](https://huggingface.co/bartowski/TildeAI_TildeOpen-30b-GGUF) | `TildeAI_TildeOpen-30b-Q4_K_S.gguf` | llama-cli | 17.6 GB |
+| OmniVoice Q8_0 (base + tokenizer) | [Serveurperso/OmniVoice-GGUF](https://huggingface.co/Serveurperso/OmniVoice-GGUF) | `omnivoice-base-Q8_0.gguf` + `omnivoice-tokenizer-Q8_0.gguf` | omnivoice.cpp | ~945 MB |
+| FLUX.2-klein 4B Q4_K_M | [unsloth/FLUX.2-klein-4B-GGUF](https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF) | `flux-2-klein-4b-Q4_K_M.gguf` | ComfyUI-GGUF / diffusers | ~2.6 GB |
+
+> **Note:** All four models use GGUF format, but each requires its own runtime engine:
+> - **llama-cli** for the two LLMs (Nemotron + TildeOpen) — text generation
+> - **omnivoice.cpp** for OmniVoice — text-to-speech (C++/GGML port)
+> - **ComfyUI-GGUF / diffusers** for FLUX.2 — image generation (diffusion model)
 
 ### Anki Integration
 

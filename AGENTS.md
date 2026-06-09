@@ -11,11 +11,18 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 **Tech Stack:**
 - Python 3.12+
 - Gradio 6 (frontend UI)
-- llama.cpp runtime (via `InferenceEngine` protocol)
-- TildeOpen (translation model, CEFR-aware text generation)
-- OmniVoice (text-to-speech)
-- FLUX.2-klein-4B (image generation)
+- llama-cli (text generation: Nemotron-3-Nano + TildeOpen, GGUF format)
+- omnivoice.cpp (TTS: OmniVoice Q8_0, GGUF format)
+- ComfyUI-GGUF / diffusers (image gen: FLUX.2-klein 4B, GGUF format)
 - uv (dependency management), Hugging Face Hub (model weights)
+
+**Models:**
+| Model | Repo | Runtime |
+|---|---|---|
+| Nemotron-3-Nano 30B-A3B IQ4_XS | [bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF](https://huggingface.co/bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF) | llama-cli |
+| TildeOpen-30b Q4_K_S | [bartowski/TildeAI_TildeOpen-30b-GGUF](https://huggingface.co/bartowski/TildeAI_TildeOpen-30b-GGUF) | llama-cli |
+| OmniVoice Q8_0 | [Serveurperso/OmniVoice-GGUF](https://huggingface.co/Serveurperso/OmniVoice-GGUF) | omnivoice.cpp |
+| FLUX.2-klein 4B Q4_K_M | [unsloth/FLUX.2-klein-4B-GGUF](https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF) | ComfyUI-GGUF / diffusers |
 
 **Architecture at a glance:**
 - `core/` — types, inference engine, batch pipeline
@@ -254,4 +261,4 @@ Gradio's default styles use `!important` heavily. Our `custom.css` also uses `!i
 
 ### 5. Model paths are runtime-resolved
 
-Models live in a configurable directory (default: `./models/`). Never hard-code model file paths. Always use the paths returned by `models/download_models.py` or read from `configs/settings.yaml`.
+Models live in a configurable directory (default: `.local/models/`, see `configs/settings.yaml`). Never hard-code model file paths. Always resolve paths via the settings config or `models/download_models.py`. Each model has its own runtime engine — don't assume llama-cli can run all GGUF files.
