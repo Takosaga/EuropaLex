@@ -12,13 +12,15 @@ Models:
 """
 
 import argparse
+import concurrent.futures
 from pathlib import Path
+
 
 # Model definitions — HF Hub repos with exact GGUF filenames
 MODELS = {
     "nemotron": {
         "repo": "bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF",
-        "files": ["Nemotron-3-Nano-30B-A3B-IQ4_XS.gguf"],
+        "files": ["nvidia_Nemotron-3-Nano-30B-A3B-IQ4_XS.gguf"],
         "description": "Nemotron-3-Nano 30B-A3B IQ4_XS (llama-cli)",
     },
     "tildeopen": {
@@ -40,39 +42,25 @@ MODELS = {
 
 
 def download_model(name: str, target_dir: Path) -> None:
-    """Download a single model from HF Hub."""
+    """Download a single model from HF Hub using Python API."""
     info = MODELS[name]
     output_dir = target_dir / name
 
     print(f"Downloading {info['description']} ({info['repo']})...")
     print(f"  Target: {output_dir}")
+    for f in info["files"]:
+        print(f"  📦 {f}")
+    print()
 
-    try:
-        from huggingface_hub import snapshot_download
+    from huggingface_hub import snapshot_download
 
-        snapshot_download(
-            repo_id=info["repo"],
-            allow_patterns=info["files"],
-            local_dir=str(output_dir),
-            resume_download=True,
-        )
-        print(f"  ✓ Done")
-    except ImportError:
-        # Fallback: use huggingface-cli
-        import subprocess
-
-        subprocess.run(
-            [
-                "huggingface-cli",
-                "download",
-                info["repo"],
-                "--include",
-                ",".join(info["files"]),
-                "--local-dir",
-                str(output_dir),
-            ],
-            check=True,
-        )
+    snapshot_download(
+        repo_id=info["repo"],
+        allow_patterns=info["files"],
+        local_dir=str(output_dir),
+        resume_download=True,
+    )
+    print(f"  ✓ Done — {output_dir}\n")
 
 
 def main():
@@ -96,8 +84,27 @@ def main():
 
     models_to_download = args.models if args.models else list(MODELS.keys())
 
-    for name in models_to_download:
-        download_model(name, output_dir)
+    print(f"Starting {len(models_to_download)} download(s) with 4 parallel workers...\n")
+
+    errors = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {
+            executor.submit(download_model, name, output_dir): name
+            for name in models_to_download
+        }
+        for future in concurrent.futures.as_completed(futures):
+            name = futures[future]
+            try:
+                future.result()
+            except Exception as e:
+                errors.append((name, str(e)))
+                print(f"  ✗ {name} failed: {e}\n")
+
+    if errors:
+        print(f"\n{len(errors)} model(s) failed to download.")
+        raise SystemExit(1)
+    else:
+        print(f"All {len(models_to_download)} model(s) downloaded successfully.")
 
 
 if __name__ == "__main__":

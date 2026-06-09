@@ -174,12 +174,14 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "gradio" },
+    { name = "huggingface-hub" },
     { name = "pyyaml" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "gradio", specifier = ">=4.0.0" },
+    { name = "huggingface-hub", specifier = ">=1.18.0" },
     { name = "pyyaml", specifier = ">=6.0" },
 ]
 
