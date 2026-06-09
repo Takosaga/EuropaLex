@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import logging
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from pathlib import Path
+from typing import ClassVar
 
 import numpy as np
 import soundfile as sf
 import torch
 from pathlib import Path
 
-from core.types import CEFRLevel, TextResult
+from core.types import CEFRLevel, EngineConfig, TextResult
 
 logger = logging.getLogger(__name__)
 
@@ -269,3 +271,120 @@ class ImageGenEngine:
             except Exception:
                 pass
             logger.info("Flux2Klein pipeline unloaded")
+
+
+class EnginePool:
+    """Singleton managing mutual exclusion between GPU inference engines.
+
+    Ensures only one GPU model (TTSEngine or ImageGenEngine) is loaded at a time.
+    Text engines are subprocess-based and do not consume persistent VRAM.
+
+    Usage:
+        pool = EnginePool.get(config)
+        text_result = pool.get_translation_engine().translate(texts, cefr_level)
+        # ... later ...
+        audio_result = pool.get_tts_engine().synthesize(translations, output_dir)
+    """
+
+    _instance: ClassVar[EnginePool | None] = None
+    _config: EngineConfig
+    _state: _EngineState
+
+    def __new__(cls) -> EnginePool:
+        if cls._instance is None:
+            raise RuntimeError(
+                "EnginePool must be created via EnginePool.get(config), not directly."
+            )
+        return cls._instance
+
+    @classmethod
+    def get(cls, config: EngineConfig) -> EnginePool:
+        """Get or create the EnginePool singleton.
+
+        Args:
+            config: Validated engine configuration.
+
+        Returns:
+            The singleton EnginePool instance.
+        """
+        if cls._instance is None:
+            instance = super().__new__(cls)
+            instance._config = config
+            instance._state = _EngineState()
+            cls._instance = instance
+            logger.info("EnginePool initialized (device=%s)", config.device)
+        return cls._instance
+
+    @classmethod
+    def reset(cls) -> None:
+        """Reset the singleton (useful for testing). Unloads all engines."""
+        if cls._instance is not None:
+            cls._instance._unload_tts()
+            cls._instance._unload_image()
+            cls._instance = None
+
+    def get_english_engine(self) -> TextEngine:
+        """Get a fresh English text generation engine (Nemotron).
+
+        Clears any active GPU engines before returning.
+        """
+        self._ensure_exclusive("text")
+        return TextEngine(
+            model_path=self._config.nemotron_model_path,
+            device=self._config.device,
+        )
+
+    def get_translation_engine(self) -> TextEngine:
+        """Get a fresh translation engine (TildeOpen).
+
+        Clears any active GPU engines before returning.
+        """
+        self._ensure_exclusive("text")
+        return TextEngine(
+            model_path=self._config.llm_model_path,
+            device=self._config.device,
+        )
+
+    def get_tts_engine(self) -> TTSEngine:
+        """Get or create the TTS engine.
+
+        Unloads any active GPU engines before loading TTS.
+        The same TTSEngine instance is returned on subsequent calls until unloaded.
+        """
+        self._ensure_exclusive("tts")
+        if self._state.tts_engine is None:
+            self._state.tts_engine = TTSEngine(device=self._config.device)
+        return self._state.tts_engine
+
+    def get_image_engine(self) -> ImageGenEngine:
+        """Get or create the image generation engine.
+
+        Unloads any active GPU engines before loading images.
+        The same ImageGenEngine instance is returned on subsequent calls until unloaded.
+        """
+        self._ensure_exclusive("image")
+        if self._state.image_engine is None:
+            self._state.image_engine = ImageGenEngine(device=self._config.device)
+        return self._state.image_engine
+
+    def _ensure_exclusive(self, target: str) -> None:
+        """Unload any active GPU engine that conflicts with the target."""
+        if target == "text":
+            self._unload_tts()
+            self._unload_image()
+        elif target == "tts":
+            self._unload_image()
+        elif target == "image":
+            self._unload_tts()
+
+    def _unload_tts(self) -> None:
+        """Unload the TTS engine if active."""
+        if self._state.tts_engine is not None:
+            self._state.tts_engine.unload()
+            self._state.tts_engine = None
+
+    def _unload_image(self) -> None:
+        """Unload the image engine if active."""
+        if self._state.image_engine is not None:
+            self._state.image_engine.unload()
+            self._state.image_engine = None
