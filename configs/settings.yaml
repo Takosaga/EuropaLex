@@ -1,2 +1,42 @@
 # EuropaLex Settings
-# Batch size defaults, CEFR levels, language configuration
+# Model paths, batch size defaults, CEFR levels, language configuration
+
+models:
+  directory: .local/models
+  nemotron:
+    repo: bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF
+    file: Nemotron-3-Nano-30B-A3B-IQ4_XS.gguf
+    runtime: llama-cli
+    quant: IQ4_XS
+  tildeopen:
+    repo: bartowski/TildeAI_TildeOpen-30b-GGUF
+    file: TildeAI_TildeOpen-30b-Q4_K_S.gguf
+    runtime: llama-cli
+    quant: Q4_K_S
+  omnivoice:
+    repo: Serveurperso/OmniVoice-GGUF
+    files:
+      - omnivoice-base-Q8_0.gguf
+      - omnivoice-tokenizer-Q8_0.gguf
+    runtime: omnivoice.cpp
+    quant: Q8_0
+  flux:
+    repo: unsloth/FLUX.2-klein-4B-GGUF
+    file: flux-2-klein-4b-Q4_K_M.gguf
+    runtime: ComfyUI-GGUF
+    quant: Q4_K_M
+
+# Batch defaults
+batch:
+  default_size: 3
+  max_size: 10
+
+# CEFR levels supported
+cefr_levels:
+  - A0
+  - A1
+  - A2
+  - B1
+  - B2
+  - C1
+  - C2
