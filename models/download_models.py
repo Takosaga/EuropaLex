@@ -1,30 +1,40 @@
 """Download models from Hugging Face Hub at runtime.
 
 Usage:
-    python -m models.download_models          # Download all models
-    python -m models.download_models tilde-open  # Download specific model
+    python -m models.download_models                  # Download all models
+    python -m models.download_models nemotron tildeopen  # Download specific models
+
+Models:
+    nemotron        — Nemotron-3-Nano 30B-A3B IQ4_XS (llama-cli)
+    tildeopen       — TildeOpen-30b Q4_K_S (llama-cli)
+    omnivoice       — OmniVoice Q8_0 TTS (omnivoice.cpp, requires base + tokenizer)
+    flux            — FLUX.2-klein 4B Q4_K_M image gen (ComfyUI-GGUF)
 """
 
 import argparse
-import os
 from pathlib import Path
 
-# Model definitions — HF Hub URLs (no git submodules needed)
+# Model definitions — HF Hub repos with exact GGUF filenames
 MODELS = {
-    "tilde-open": {
-        "repo": "TildeAI/TildeOpen-30b",
-        "files": ["*.gguf"],
-        "description": "TildeOpen-30b text generation",
+    "nemotron": {
+        "repo": "bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF",
+        "files": ["Nemotron-3-Nano-30B-A3B-IQ4_XS.gguf"],
+        "description": "Nemotron-3-Nano 30B-A3B IQ4_XS (llama-cli)",
+    },
+    "tildeopen": {
+        "repo": "bartowski/TildeAI_TildeOpen-30b-GGUF",
+        "files": ["TildeAI_TildeOpen-30b-Q4_K_S.gguf"],
+        "description": "TildeOpen-30b Q4_K_S translation (llama-cli)",
     },
     "omnivoice": {
-        "repo": "k2-fsa/OmniVoice",
-        "files": ["*"],
-        "description": "OmniVoice TTS",
+        "repo": "Serveurperso/OmniVoice-GGUF",
+        "files": ["omnivoice-base-Q8_0.gguf", "omnivoice-tokenizer-Q8_0.gguf"],
+        "description": "OmniVoice Q8_0 TTS (base + tokenizer, omnivoice.cpp)",
     },
     "flux": {
-        "repo": "black-forest-labs/FLUX.2-klein-4B",
-        "files": ["*"],
-        "description": "FLUX.2-klein image generation",
+        "repo": "unsloth/FLUX.2-klein-4B-GGUF",
+        "files": ["flux-2-klein-4b-Q4_K_M.gguf"],
+        "description": "FLUX.2-klein 4B Q4_K_M image gen (ComfyUI-GGUF)",
     },
 }
 
