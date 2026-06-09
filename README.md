@@ -91,3 +91,29 @@ EuropaLex/
 
 - **A0:** Uses curated common words list (no text generation model needed)
 - **A1–C2:** TildeOpen generates target-language text at the selected level
+
+## Workflow
+
+EuropaLex generates flashcards in two phases: text first, then media.
+
+### Phase 1 — Generate Text
+
+1. Enter a scenario or paste text in the input box
+2. Select a CEFR level (`A0`–`C2`) from the dropdown
+3. Set the batch size with the slider (number of cards to generate)
+4. Click **Generate Text**
+5. The app calls TildeOpen to produce English text and target-language translations for each card
+6. Cards appear in the gallery with front (English) and back (translation) text
+
+### Phase 2 — Generate Media
+
+1. After Phase 1 completes, the **Images** and **Audio** toggles become active
+2. Toggle on whichever media types you want (images, audio, or both)
+3. Click **Generate Cards**
+4. The app calls OmniVoice for text-to-speech and FLUX.2 for illustrative images
+5. Media buttons appear on each card
+
+### Export
+
+1. Once cards are generated, click **Export to Anki** (`.apkg`) or **Export as CSV**
+2. For power users: run `npx @ankimcp/anki-mcp-server --tunnel` locally and use the Sync to Anki button in the app
