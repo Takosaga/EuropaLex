@@ -189,3 +189,27 @@ body, .gradio-container {
 .gradio-slider {
     border-radius: 6px !important;
 }
+
+/* ─── Two-Phase Generation: Disabled States ─────────────────────── */
+
+.europalex-btn-disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.europalex-toggle-disabled .md:has(input[type="checkbox"]) {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* Card placeholder back side styling */
+.card-placeholder-back {
+    border-top: 2px dashed #d4c5a9;
+    padding-top: 6px;
+    font-size: 0.78em;
+    color: #b8a88a;
+    font-style: italic;
+    min-height: 1.2em;
+}
