@@ -59,6 +59,11 @@ Three states control button visibility, toggle interactivity, and card content:
 | **Text Generated** | Hidden or disabled | Disabled | Active, clickable | English text + dashed placeholder back |
 | **Media Complete** | Hidden | Enabled (based on user choice) | Hidden | Full cards with EN, translations, images, audio |
 
+**Button visibility per state:**
+- Idle: "Generate Text" visible, "Generate Cards" disabled (greyed out)
+- Text Generated: "Generate Text" hidden, "Generate Cards" visible and active
+- Media Complete: Both buttons hidden. Only export buttons (.apkg, .csv, Sync to Anki) remain.
+
 ### State Transitions
 
 1. **Idle → Text Generated:** User clicks "Generate Text"
@@ -99,10 +104,12 @@ generate_cards_btn.click(
 ```python
 def render_card_html(card_data, include_image=False, include_audio=False, rotation=0.0, placeholder_back=True):
     # When placeholder_back=True: renders dashed line instead of translation text
-    # When placeholder_back=False: renders actual back-text from card_data["back"]
+    # When placeholder_back=False: renders actual back-text from card_data["translation"]
 ```
 
 **Update `generate_cards_html()` to accept and pass through `placeholder_back`.**
+
+**Mock data note:** Current mock data uses `{"front": <Latvian>, "back": <English>}`. For the two-phase flow, we invert: cards show English text on front (`card_data["text"]`), with placeholder or actual translation on back (`card_data["translation"]`). The `generate_media_async()` function populates `card_data["translation"]` during media generation.
 
 ### 3. `frontend/ui/widgets.py` — Toggle Helper
 
