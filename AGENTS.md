@@ -128,3 +128,125 @@ Use `frontend/ui/cards.py:generate_progress_html(percent, phase_label)`. The fun
 - Phase label text ("Generating text..." vs "Generating media...")
 
 Return empty string (`""`) when `percent <= 0` — Gradio will hide the element.
+
+## Core Module Rules
+
+### types.py
+
+The canonical data shapes. If you add a new field to `CardData` or `CEFRLevel`, update it here first and propagate changes everywhere that consumes these types.
+
+```python
+# Template — match this structure:
+@dataclass
+class CardData:
+    text: str              # English source text
+    translation: str       # Target-language translation (empty during Phase 1)
+    audio_path: str | None = None   # Path to generated TTS audio
+    image_path: str | None = None   # Path to generated illustration
+```
+
+### engine.py
+
+The `InferenceEngine` protocol defines the interface. Implementations wrap different backends (local llama.cpp vs Modal-hosted). **Rules:**
+- Never bypass the protocol — all inference goes through `InferenceEngine.generate()` or equivalent.
+- Each implementation should be self-contained. Don't share state between `LocalInference` and `ModalInference`.
+
+### pipeline.py
+
+The batch orchestrator. It receives a list of texts and produces batches of (text, audio, image) outputs based on toggle state. **Rules:**
+- Pipeline is the single point of parallelism control. If adding new media types, add them here first.
+- Use generator functions (`yield`) for streaming progress updates — Gradio consumes generators for real-time UI updates.
+
+## Testing Expectations
+
+### Smoke Tests
+
+Run `scripts/smoke_test.py` before committing. It performs a quick sanity check: imports all modules, validates dataclasses, and checks that the Gradio app can be constructed without errors.
+
+```bash
+python scripts/smoke_test.py
+```
+
+Expected output: clean exit (no traceback). If it fails, something is broken at the module level.
+
+### Mock Data
+
+The frontend can render cards from mock data (no model inference needed). When testing UI changes:
+- Use `frontend/ui/cards.py:render_card_html()` directly with a dict like `{"text": "Hello", "translation": "Sveiki"}`
+- The card renderer handles missing fields gracefully — `translation` defaults to empty string, `audio_path`/`image_path` are ignored in HTML rendering.
+
+### No Unit Test Framework Required (Yet)
+
+The project currently uses smoke tests only. If you add a new module with non-trivial logic (>30 lines of business logic), consider adding inline assertions or a simple test function at the bottom of the file guarded by `if __name__ == "__main__":`.
+
+## Adding New Features
+
+Use this checklist when extending EuropaLex:
+
+1. **Identify the module** — Where does the feature belong? (See Code Structure table.)
+2. **Define types first** — If the feature introduces new data, add it to `core/types.py`.
+3. **Implement core logic** — In `core/` or the appropriate module. Follow the protocol pattern from `engine.py`.
+4. **Wire up the UI** — Add widgets in `frontend/ui/widgets.py`, renderers in `frontend/ui/cards.py`. Update `app.py` click handlers last.
+5. **Update CSS if needed** — New visual elements go in `frontend/css/custom.css`. Keep inline styles only for card-level dynamic properties (rotation, conditional display).
+6. **Test with smoke test** — Run `python scripts/smoke_test.py`.
+7. **Commit** — One logical change per commit. Message format: `type: brief description` (e.g., `feat: add Japanese language support`, `fix: card rotation overflow`).
+
+## Git Workflow
+
+### Commit Conventions
+
+Use [Conventional Commits](https://www.conventionalcommits.org/) prefix:
+- `feat:` — new feature
+- `fix:` — bug fix
+- `docs:` — documentation only
+- `style:` — formatting, no code change
+- `refactor:` — code restructuring, no behavior change
+- `test:` — test-related changes
+
+### Branch Strategy
+
+- Work on feature branches: `feat/<feature-name>` (e.g., `feat/gradio_frontend`, `feat/japanese-support`)
+- Keep main clean — only merge when a feature is complete and tested.
+- Commit frequently within branches (every 2-5 minutes of work).
+
+### Before Merging
+
+1. Run `python scripts/smoke_test.py` — must pass
+2. Verify the Gradio app starts: `python app.py` — must launch without errors on port 7860
+3. Check that all new code follows the conventions in this document
+
+## Known Pitfalls
+
+### 1. Don't inline card HTML in app.py
+
+Card rendering belongs in `frontend/ui/cards.py`. If you find yourself building `<div>` strings in `app.py`, move them to a function in `cards.py` or `widgets.py`.
+
+### 2. Two-phase state machine is fragile
+
+The disabled/enabled toggle states are managed via CSS injection (`#phase-css`) and Gradio element re-rendering. If you add new phase-dependent controls, remember to:
+- Give them an `elem_id` for targeting
+- Include them in `_reset_to_idle()` outputs
+- Include them in `_enable_phase2()` outputs
+
+### 3. Gradio generator functions must yield tuples
+
+When a click handler produces multiple outputs (e.g., progress bar + card gallery), it must be a generator that yields tuples matching the output order:
+
+```python
+def my_handler(...):
+    # ... work ...
+    yield progress_html, cards_html
+```
+
+If you forget `yield`, Gradio will not update the UI.
+
+### 4. CSS specificity wars with Gradio
+
+Gradio's default styles use `!important` heavily. Our `custom.css` also uses `!important` to override them. If a style isn't taking effect:
+- Check if Gradio re-renders the element (re-rendered elements may get new inline styles)
+- Increase specificity or add another `!important`
+- Use `elem_id` targeting instead of class selectors when possible
+
+### 5. Model paths are runtime-resolved
+
+Models live in a configurable directory (default: `./models/`). Never hard-code model file paths. Always use the paths returned by `models/download_models.py` or read from `configs/settings.yaml`.
