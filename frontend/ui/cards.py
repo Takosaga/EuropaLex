@@ -23,34 +23,44 @@ def render_card_html(
     Returns:
         HTML string for a single flashcard.
     """
-    front = card_data["text"]
-    back = card_data.get("translation", "")
+    # Normal mode: translation on front, English on back
+    # Phase 1 (placeholder_back=True): English on front, placeholder on back
+    if placeholder_back:
+        front = card_data["text"]
+        back = ""
+    else:
+        front = card_data.get("translation", "")
+        back = card_data["text"]
 
     # Adaptive dimensions based on enabled media
     if include_image and include_audio:
+        width = 190
+        min_height = 200
+    elif include_image:
+        width = 180
+        min_height = 170
+    elif include_audio:
         width = 180
         min_height = 160
-    elif include_image:
-        width = 170
-        min_height = 130
-    elif include_audio:
-        width = 170
-        min_height = 120
     else:
-        width = 150
-        min_height = 80
+        width = 160
+        min_height = 90
 
-    # Build image placeholder HTML (conditional)
+    # Build image HTML (conditional, for front side)
     image_html = ""
     if include_image:
         image_html = '<div class="img-placeholder">🖼️</div>'
 
-    # Build media buttons row HTML (conditional)
-    media_buttons_html = ""
+    # Build audio button HTML (conditional, for front side)
+    audio_html = ""
     if include_audio:
-        media_buttons_html = (
-            '<span class="media-btn" title="Play audio">▶</span>'
-        )
+        audio_html = '<span class="media-btn" title="Play audio">▶</span>'
+
+    # Build front media row (only in normal mode — not Phase 1)
+    if placeholder_back:
+        front_media_row = ""
+    else:
+        front_media_row = f'<div class="media-row" style="display:flex; gap:8px; margin-top:4px; align-items:center;">{audio_html}</div>'
 
     # Build back text or placeholder
     if placeholder_back:
@@ -75,11 +85,9 @@ def render_card_html(
         transition: all 0.2s ease;
     " onmouseover="this.style.transform='rotate(0deg) scale(1.02)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.2)'" onmouseout="this.style.transform='rotate({rotation}deg)'; this.style.boxShadow='0 2px 6px rgba(0,0,0,0.15), 0 1px 2px rgba(0,0,0,0.1)'">
         <div class="front-text" style="font-size:0.95em; font-weight:bold; color:#2a1f0f; margin-bottom:6px; line-height:1.35; font-style:italic;">{front}</div>
-        {back_html}
         {image_html}
-        <div class="media-row" style="display:flex; gap:8px; margin-top:8px; align-items:center;">
-            {media_buttons_html}
-        </div>
+        {front_media_row}
+        {back_html}
     </div>"""
 
 

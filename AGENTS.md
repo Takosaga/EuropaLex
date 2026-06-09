@@ -1,4 +1,4 @@
-# EuropaLex — AI Agent Conventions
+# Europa Lex — AI Agent Conventions
 
 **Working directory:** All paths, commands, and file references below are relative to the `EuropaLex/` project root. Assume you are already inside this directory — do not `cd` into or out of it.
 
@@ -99,6 +99,8 @@ All card HTML goes through `frontend/ui/cards.py`:
 **Rules:**
 - Never construct card HTML inline in `app.py`. Always call these functions.
 - The `rotation` parameter creates the "spread on desk" visual effect. Use the rotation distribution logic from `generate_cards_html()` — don't hard-code angles.
+- **Card layout:** Translation (target language) on front, English on back (after Phase 2). During Phase 1 (`placeholder_back=True`), English is on front with a dashed placeholder back.
+- **Media placement:** Image 🖼️ and audio ▶ controls render on the front side alongside the translation (not on the back).
 - `placeholder_back=True` shows a dashed placeholder line instead of translation text (used during Phase 1 before translations are generated).
 
 ### Two-Phase Generation Workflow
@@ -108,14 +110,15 @@ The UI operates in two distinct phases:
 **Phase 1 — Generate Text:**
 1. User clicks "Generate Text"
 2. `app.py` calls the text generation handler → TildeOpen produces English + translation
-3. Cards render with text but media toggles are disabled (CSS opacity + pointer-events)
+3. Cards render with English on the front, placeholder back (dashed line)
 4. After completion, `_enable_phase2()` removes disabled CSS and enables toggles + "Generate Cards" button
 
 **Phase 2 — Generate Media:**
 1. User toggles Images/Audio on/off
 2. User clicks "Generate Cards"
 3. `app.py` calls the media generation handler → OmniVoice (TTS) + FLUX.2 (images) fill in media
-4. Both buttons hide during generation, reappear when done
+4. Cards update: translation appears on the front, image and audio controls appear with it; English text moves to the back
+5. Both buttons hide during generation, reappear when done
 
 **Rules:**
 - Never skip Phase 1. Even if media-only mode seems useful, text must be generated first.

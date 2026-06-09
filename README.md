@@ -1,6 +1,6 @@
-# EuropaLex
+# Europa Lex
 
-Generate Anki flashcards for European languages using local AI models. Starting with Latvian, designed to support any language available through TildeOpen.
+AI-powered flashcard generator for European languages. Generates target-language translations, text-to-speech audio, and illustrative images — exports directly as Anki decks (`.apkg`) or CSV.
 
 > **Note:** All commands and paths in this document are relative to the `EuropaLex/` project root. Assume you are already inside this directory.
 
@@ -68,7 +68,7 @@ EuropaLex generates flashcards in two phases: text first, then media.
 3. Set the batch size with the slider (number of cards to generate)
 4. Click **Generate Text**
 5. The app calls TildeOpen to produce English text and target-language translations for each card
-6. Cards appear in the gallery with front (English) and back (translation) text
+6. Cards appear in the gallery with English text on the front and a placeholder on the back
 
 ### Phase 2 — Generate Media
 
@@ -76,7 +76,7 @@ EuropaLex generates flashcards in two phases: text first, then media.
 2. Toggle on whichever media types you want (images, audio, or both)
 3. Click **Generate Cards**
 4. The app calls OmniVoice for text-to-speech and FLUX.2 for illustrative images
-5. Media buttons appear on each card
+5. Cards update: translation moves to the front, English stays on the back; image and audio controls appear on the front side
 
 ### Export
 
@@ -90,7 +90,7 @@ EuropaLex is organized into five main modules:
 | Module | Purpose |
 |---|---|
 | `core/` | Data types (`types.py`), inference engine protocol + implementations (`engine.py`), batch pipeline orchestrator (`pipeline.py`) |
-| `frontend/` | Gradio 6 UI: styled toggles (`widgets.py`), card rendering and gallery layout (`cards.py`), custom CSS (`css/custom.css`) |
+| `frontend/` | Gradio 6 UI: styled toggles (`widgets.py`), card rendering with two-phase layout (`cards.py`), custom CSS (`css/custom.css`) |
 | `models/` | Hugging Face Hub model downloader — fetches models at runtime, no git submodules |
 | `export/` | `.apkg` Anki package generator, CSV export, Anki tunnel sync via MCP server |
 | `app.py` | Entry point — wires inputs to two-phase click handlers with progress tracking |
