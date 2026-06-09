@@ -205,13 +205,13 @@ with gr.Blocks() as demo:
 
         Only resets toggle/button interactivity — keeps cards visible
         so the user can regenerate without losing their work.
-        Also restores generate_text_btn visibility (hidden by Phase 2).
+        Also restores both buttons visibility (hidden by Phase 2).
         """
         return (
             gr.Button(visible=True, interactive=True),
             gr.Checkbox(interactive=False),
             gr.Checkbox(interactive=False),
-            gr.Button(interactive=False, variant="secondary"),
+            gr.Button(visible=True, interactive=False, variant="secondary"),
         )
 
     generate_text_btn.click(
@@ -234,7 +234,7 @@ with gr.Blocks() as demo:
         outputs=[generate_text_btn, generate_cards_btn],
     )
 
-    # Reset toggles and phase-2 button when user changes any input parameter
+    # Reset toggles and both buttons when user changes any input parameter
     scenario_input.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn])
     cefr_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn])
     batch_slider.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn])
