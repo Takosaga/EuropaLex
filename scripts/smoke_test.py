@@ -16,7 +16,7 @@ def main():
 
     # Test 2: Import engine modules
     try:
-        from core.engine import TextEngine, TTSEngine, ImageGenEngine, EnginePool
+        from core.engine import TextEngine, LlamaCppTextEngine, TTSEngine, ImageGenEngine, EnginePool
         print("✓ core.engine imports OK")
     except Exception as e:
         errors.append(f"core.engine import failed: {e}")

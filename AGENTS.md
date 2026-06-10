@@ -12,7 +12,8 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 - Python 3.12+
 - Gradio 6 (frontend UI)
 - Pydantic >=2.0.0 (type-safe data models)
-- llama-cli (text generation: Nemotron-3-Nano + TildeOpen, GGUF format)
+- llama-cli (text generation: Nemotron-3-Nano, GGUF format)
+- llama-cpp-python (translation: tiny-aya-water Q4_K_M, GGUF format)
 - omnivoice (PyPI package, lazy-load/unload via EnginePool)
 - diffusers >=0.28.0 (image gen: FLUX.2-klein 4B, lazy-load/unload via EnginePool)
 - torch >=2.1.0 (PyTorch backend for TTS and image generation)
@@ -20,15 +21,18 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 - uv (dependency management), Hugging Face Hub (model weights)
 
 **Models:**
-| Model | Repo | Runtime |
-|---|---|---|
-| Nemotron-3-Nano 30B-A3B IQ4_XS | [bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF](https://huggingface.co/bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF) | llama-cli |
-| TildeOpen-30b Q4_K_S | [bartowski/TildeAI_TildeOpen-30b-GGUF](https://huggingface.co/bartowski/TildeAI_TildeOpen-30b-GGUF) | llama-cli |
-| OmniVoice Q8_0 | [Serveurperso/OmniVoice-GGUF](https://huggingface.co/Serveurperso/OmniVoice-GGUF) | omnivoice.cpp |
-| FLUX.2-klein 4B Q4_K_M | [unsloth/FLUX.2-klein-4B-GGUF](https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF) | ComfyUI-GGUF / diffusers |
+| Model | Repo | Runtime | Role |
+|---|---|---|---|
+| Nemotron-3-Nano 30B-A3B IQ4_XS | [bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF](https://huggingface.co/bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF) | llama-cli | English text generation (Phase 1) |
+| tiny-aya-water Q4_K_M | [CohereLabs/tiny-aya-water-GGUF](https://huggingface.co/CohereLabs/tiny-aya-water-GGUF) | llama-cpp-python | Translation (active) |
+| TildeOpen-30b Q4_K_S ⚠️ | [bartowski/TildeAI_TildeOpen-30b-GGUF](https://huggingface.co/bartowski/TildeAI_TildeOpen-30b-GGUF) | llama-cli | Translation (available, not active) |
+| OmniVoice Q8_0 | [Serveurperso/OmniVoice-GGUF](https://huggingface.co/Serveurperso/OmniVoice-GGUF) | omnivoice.cpp | Text-to-speech |
+| FLUX.2-klein 4B Q4_K_M | [unsloth/FLUX.2-klein-4B-GGUF](https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF) | ComfyUI-GGUF / diffusers | Image generation |
+
+> ⚠️ TildeOpen is still downloaded and available but not the active translation model. See `configs/settings.yaml` to switch back.
 
 **Architecture at a glance:**
-- `core/` — Pydantic types (`types.py`), four engine classes + EnginePool singleton (`engine.py`), batch pipeline (`pipeline.py`)
+- `core/` — Pydantic types (`types.py`), five engine classes + EnginePool singleton (`engine.py`), batch pipeline (`pipeline.py`)
 - `frontend/` — Gradio UI: widgets, card rendering, custom CSS
 - `models/` — HF Hub model downloader
 - `export/` — .apkg generator, CSV export, Anki tunnel sync
@@ -65,7 +69,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 ### Naming
 
 - **Modules (lowercase, underscore):** `apkg_generator`, `anki_tunnel`, `download_models`
-- **Classes (PascalCase):** `CardData`, `CEFRLevel`, `TextEngine`, `TTSEngine`, `ImageGenEngine`, `EnginePool`, `InferenceEngine` (legacy protocol)
+- **Classes (PascalCase):** `CardData`, `CEFRLevel`, `TextEngine`, `LlamaCppTextEngine`, `TTSEngine`, `ImageGenEngine`, `EnginePool`, `InferenceEngine` (legacy protocol)
 - **Functions/variables (snake_case):** `render_card_html`, `generate_cards_html`, `batch_size`
 - **Constants (UPPER_SNAKE_CASE):** None currently needed; keep config in YAML
 
@@ -84,7 +88,7 @@ User input → app.py click handler → EnginePool.get(config) → TextEngine/TT
 
 When adding a new feature, follow this chain. Don't bypass `pipeline.py` — even single-card generation should go through it for consistency.
 
-**EnginePool singleton:** All GPU engines (TTSEngine, ImageGenEngine) are managed by `EnginePool`, which enforces mutual exclusion — only one GPU model loaded at a time. Text engines (`TextEngine`) are subprocess-based and stateless.
+**EnginePool singleton:** Manages mutual exclusion between all GPU engines: `LlamaCppTextEngine` (translation, ~2 GB VRAM), `TTSEngine` (TTS), and `ImageGenEngine` (images). Only one can be loaded at a time. `TextEngine` is subprocess-based with no persistent VRAM.
 
 ## Frontend Patterns
 
@@ -121,7 +125,7 @@ The UI operates in two distinct phases:
 
 **Phase 1 — Generate Text:**
 1. User clicks "Generate Text"
-2. `app.py` calls the text generation handler → TildeOpen produces English + translation
+2. `app.py` calls the text generation handler → Nemotron generates English sentences, then tiny-aya-water translates them
 3. Cards render with English on the front, placeholder back (dashed line)
 4. After completion, `_enable_phase2()` removes disabled CSS and enables toggles + "Generate Cards" button
 
@@ -171,19 +175,20 @@ Other Pydantic models:
 
 ### engine.py
 
-Four concrete engine classes replace the legacy `InferenceEngine` protocol:
+Five concrete engine classes replace the legacy `InferenceEngine` protocol:
 
 | Class | Backend | Lifecycle |
 |---|---|---|
 | `TextEngine` | llama-cli subprocess | Stateless — spawns fresh process per `.generate()` call |
+| `LlamaCppTextEngine` | llama-cpp-python (GGUF) | Lazy-load on first `.generate()`, unload after completion (~2 GB VRAM) |
 | `TTSEngine` | omnivoice (PyTorch) | Lazy-load on first `.synthesize()`, unload after completion |
 | `ImageGenEngine` | diffusers Flux2KleinPipeline (PyTorch) | Lazy-load on first `.generate()`, unload after completion |
-| `EnginePool` | Singleton factory | Manages mutual exclusion between TTSEngine and ImageGenEngine |
+| `EnginePool` | Singleton factory | Manages mutual exclusion between all GPU engines |
 
 **Rules:**
 - All inference goes through `EnginePool.get(config)` — never instantiate engines directly in app code.
-- GPU engines (TTSEngine, ImageGenEngine) are lazy-loaded and unloaded via `del` + `torch.cuda.empty_cache()`.
-- Text engines spawn subprocesses — no persistent VRAM consumption.
+- GPU engines (LlamaCppTextEngine, TTSEngine, ImageGenEngine) are lazy-loaded and unloaded via `del` + `torch.cuda.empty_cache()`.
+- Text engines (`TextEngine`) spawn subprocesses — no persistent VRAM consumption.
 - Each engine class should be self-contained. Don't share state between implementations.
 
 ### pipeline.py

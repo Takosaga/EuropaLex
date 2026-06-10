@@ -8,11 +8,11 @@ models:
     file: Nemotron-3-Nano-30B-A3B-IQ4_XS.gguf
     runtime: llama-cli
     quant: IQ4_XS
-  tildeopen:
-    repo: bartowski/TildeAI_TildeOpen-30b-GGUF
-    file: TildeAI_TildeOpen-30b-Q4_K_S.gguf
-    runtime: llama-cli
-    quant: Q4_K_S
+  tiny_aya:
+    repo: CohereLabs/tiny-aya-water-GGUF
+    file: tiny-aya-water-q4_k_m.gguf
+    runtime: llama-cpp-python
+    quant: q4_k_m
   omnivoice:
     repo: Serveurperso/OmniVoice-GGUF
     files:
