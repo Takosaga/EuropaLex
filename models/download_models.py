@@ -2,11 +2,11 @@
 
 Usage:
     python -m models.download_models                  # Download all models
-    python -m models.download_models nemotron tildeopen  # Download specific models
+    python -m models.download_models nemotron tiny_aya  # Download specific models
 
 Models:
     nemotron        — Nemotron-3-Nano 30B-A3B IQ4_XS (llama-cli)
-    tildeopen       — TildeOpen-30b Q4_K_S (llama-cli)
+    tiny_aya        — tiny-aya-water Q4_K_M (llama-cpp-python)
     omnivoice       — OmniVoice Q8_0 TTS (omnivoice.cpp, requires base + tokenizer)
     flux            — FLUX.2-klein 4B Q4_K_M image gen (ComfyUI-GGUF)
 """
@@ -23,10 +23,10 @@ MODELS = {
         "files": ["nvidia_Nemotron-3-Nano-30B-A3B-IQ4_XS.gguf"],
         "description": "Nemotron-3-Nano 30B-A3B IQ4_XS (llama-cli)",
     },
-    "tildeopen": {
-        "repo": "bartowski/TildeAI_TildeOpen-30b-GGUF",
-        "files": ["TildeAI_TildeOpen-30b-Q4_K_S.gguf"],
-        "description": "TildeOpen-30b Q4_K_S translation (llama-cli)",
+    "tiny_aya": {
+        "repo": "CohereLabs/tiny-aya-water-GGUF",
+        "files": ["tiny-aya-water-q4_k_m.gguf"],
+        "description": "tiny-aya-water q4_k_m translation (llama-cpp-python)",
     },
     "omnivoice": {
         "repo": "Serveurperso/OmniVoice-GGUF",

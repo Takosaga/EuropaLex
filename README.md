@@ -50,7 +50,7 @@ All models are GGUF format, downloaded from Hugging Face Hub at runtime (no git 
 uv run python -m models.download_models
 
 # Or download specific models
-uv run python -m models.download_models nemotron tildeopen  # Text generation only (~36 GB)
+uv run python -m models.download_models nemotron tiny_aya  # Text generation only (~20 GB)
 uv run python -m models.download_models omnivoice           # TTS only (~945 MB)
 uv run python -m models.download_models flux                # Image gen only (~2.6 GB)
 
@@ -58,17 +58,21 @@ uv run python -m models.download_models flux                # Image gen only (~2
 uv run python -m models.download_models --output-dir ./my-models
 ```
 
-| Model | HF Hub Repo | GGUF File | Runtime | Size |
-|---|---|---|---|---|
-| Nemotron-3-Nano 30B-A3B IQ4_XS | [bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF](https://huggingface.co/bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF) | `Nemotron-3-Nano-30B-A3B-IQ4_XS.gguf` | llama-cli | 18.1 GB |
-| TildeOpen-30b Q4_K_S | [bartowski/TildeAI_TildeOpen-30b-GGUF](https://huggingface.co/bartowski/TildeAI_TildeOpen-30b-GGUF) | `TildeAI_TildeOpen-30b-Q4_K_S.gguf` | llama-cli | 17.6 GB |
-| OmniVoice Q8_0 (base + tokenizer) | [Serveurperso/OmniVoice-GGUF](https://huggingface.co/Serveurperso/OmniVoice-GGUF) | `omnivoice-base-Q8_0.gguf` + `omnivoice-tokenizer-Q8_0.gguf` | omnivoice.cpp | ~945 MB |
-| FLUX.2-klein 4B Q4_K_M | [unsloth/FLUX.2-klein-4B-GGUF](https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF) | `flux-2-klein-4b-Q4_K_M.gguf` | ComfyUI-GGUF / diffusers | ~2.6 GB |
+| Model | HF Hub Repo | GGUF File | Runtime | Size | Role |
+|---|---|---|---|---|---|
+| Nemotron-3-Nano 30B-A3B IQ4_XS | [bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF](https://huggingface.co/bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF) | `Nemotron-3-Nano-30B-A3B-IQ4_XS.gguf` | llama-cli | 18.1 GB | English text generation (Phase 1) |
+| tiny-aya-water q4_k_m | [CohereLabs/tiny-aya-water-GGUF](https://huggingface.co/CohereLabs/tiny-aya-water-GGUF) | `tiny-aya-water-q4_k_m.gguf` | llama-cpp-python | ~2 GB | Translation (active) |
+| TildeOpen-30b Q4_K_S ⚠️ | [bartowski/TildeAI_TildeOpen-30b-GGUF](https://huggingface.co/bartowski/TildeAI_TildeOpen-30b-GGUF) | `TildeAI_TildeOpen-30b-Q4_K_S.gguf` | llama-cli | 17.6 GB | Translation (available, not active) |
+| OmniVoice Q8_0 (base + tokenizer) | [Serveurperso/OmniVoice-GGUF](https://huggingface.co/Serveurperso/OmniVoice-GGUF) | `omnivoice-base-Q8_0.gguf` + `omnivoice-tokenizer-Q8_0.gguf` | omnivoice.cpp | ~945 MB | Text-to-speech |
+| FLUX.2-klein 4B Q4_K_M | [unsloth/FLUX.2-klein-4B-GGUF](https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF) | `flux-2-klein-4b-Q4_K_M.gguf` | ComfyUI-GGUF / diffusers | ~2.6 GB | Image generation |
 
-> **Note:** All four models use GGUF format, but each requires its own runtime engine:
-> - **llama-cli** for the two LLMs (Nemotron + TildeOpen) — text generation
+> **Note:** Models use different runtimes:
+> - **llama-cli** for Nemotron (English text generation) — subprocess-based, no persistent VRAM
+> - **llama-cpp-python** for tiny-aya-water (translation) — lazy-load/unload via Python bindings (~2 GB VRAM)
 > - **omnivoice.cpp** for OmniVoice — text-to-speech (C++/GGML port)
 > - **ComfyUI-GGUF / diffusers** for FLUX.2 — image generation (diffusion model)
+>
+> ⚠️ TildeOpen is still downloaded and available but not the active translation model. See `configs/settings.yaml` to switch back.
 
 ### Anki Integration
 
@@ -86,7 +90,7 @@ EuropaLex generates flashcards in two phases: text first, then media.
 2. Select a CEFR level (`A0`–`C2`) from the dropdown
 3. Set the batch size with the slider (number of cards to generate)
 4. Click **Generate Text**
-5. The app calls TildeOpen to produce English text and target-language translations for each card
+5. The app generates English sentences via Nemotron, then translates them via tiny-aya-water
 6. Cards appear in the gallery with English text on the front and a placeholder on the back
 
 ### Phase 2 — Generate Media
@@ -120,11 +124,12 @@ EuropaLex is organized into five main modules:
 User Input → [Gradio UI] → EnginePool (singleton) → TextEngine/TTS/ImageGen → Card Gallery → Export (.apkg / .csv)
 ```
 
-- **Inference:** `core/engine.py` defines four engine classes:
-  - `TextEngine` — llama-cli subprocess wrapper for Nemotron and TildeOpen (stateless, spawns fresh process per call)
+- **Inference:** `core/engine.py` defines five engine classes:
+  - `TextEngine` — llama-cli subprocess wrapper for Nemotron (stateless, spawns fresh process per call)
+  - `LlamaCppTextEngine` — llama-cpp-python wrapper for tiny-aya-water translation (lazy-load/unload, ~2 GB VRAM)
   - `TTSEngine` — OmniVoice Python package with lazy-load/unload cycle (GPU memory managed by EnginePool)
   - `ImageGenEngine` — diffusers Flux2KleinPipeline with lazy-load/unload cycle (GPU memory managed by EnginePool)
-  - `EnginePool` — singleton orchestrator enforcing mutual exclusion between GPU engines
+  - `EnginePool` — singleton orchestrator enforcing mutual exclusion between all GPU engines
 - **Types:** `core/types.py` provides Pydantic models (`CardData`, `CEFRLevel`, `TextResult`, `AudioResult`, `ImageResult`, `EngineConfig`) for type-safe boundaries.
 - **Pipeline:** `core/pipeline.py` orchestrates batch generation — text first, then audio and images in parallel based on toggle state.
 - **Frontend:** `frontend/ui/cards.py` renders individual cards as HTML with conditional media elements; `generate_cards_html()` layouts them in a flex gallery with natural rotation offsets.
@@ -144,7 +149,7 @@ EuropaLex/
 ├── core/                   # Shared business logic
 │   ├── __init__.py
 │   ├── types.py            # Pydantic models: CardData, CEFRLevel, TextResult, AudioResult, ImageResult, EngineConfig
-│   ├── engine.py           # TextEngine (llama-cli), TTSEngine (OmniVoice), ImageGenEngine (diffusers), EnginePool singleton
+│   ├── engine.py           # TextEngine (Nemotron/llama-cli), LlamaCppTextEngine (tiny-aya/llama-cpp-python), TTSEngine (OmniVoice), ImageGenEngine (diffusers), EnginePool singleton
 │   └── pipeline.py         # Batch generator: text → audio → image orchestrator
 ├── frontend/               # Gradio 6 UI
 │   ├── __init__.py
@@ -177,4 +182,4 @@ EuropaLex/
 `[A0, A1, A2, B1, B2, C1, C2]`
 
 - **A0:** Uses curated common words list (no text generation model needed)
-- **A1–C2:** TildeOpen generates target-language text at the selected level
+- **A1–C2:** tiny-aya-water translates English text to the target language at the selected CEFR level

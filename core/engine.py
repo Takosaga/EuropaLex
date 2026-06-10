@@ -1,4 +1,4 @@
-"""EuropaLex Inference Engine — Local model backends via llama-cli and Python packages."""
+"""EuropaLex Inference Engine — Local model backends via llama-cli, llama-cpp-python, and Python packages."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from typing import ClassVar
 import numpy as np
 import soundfile as sf
 import torch
-from pathlib import Path
 
 from core.types import CEFRLevel, EngineConfig, TextResult
 
@@ -20,8 +19,9 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class _EngineState:
-    """Tracks which GPU engine is currently loaded (TTSEngine or ImageGenEngine)."""
+    """Tracks which GPU engine is currently loaded."""
 
+    translation_engine: LlamaCppTextEngine | None = None
     tts_engine: TTSEngine | None = None
     image_engine: ImageGenEngine | None = None
 
@@ -104,6 +104,106 @@ class TextEngine:
             f"Scenario: {scenario}\n"
             "Output ONLY the sentences, one per line. No explanations."
         )
+
+
+class LlamaCppTextEngine:
+    """Generates text using llama-cpp-python (GGUF models, lazy-load + unload).
+
+    Uses the llama-cpp-python Python bindings instead of spawning subprocesses.
+    Lazy-loads the model on first call, unloads after completion to free VRAM.
+    Only one instance can be active at a time (enforced by EnginePool).
+
+    Best for smaller GGUF models (e.g. tiny-aya-water Q4_K_M ~2 GB) where
+    keeping the model in Python memory is efficient and avoids subprocess overhead.
+    """
+
+    def __init__(self, model_path: str, device: str = "cuda"):
+        """Initialize the translation engine.
+
+        Args:
+            model_path: Absolute path to the GGUF model file.
+            device: Device hint (informational; n_gpu_layers=99 used for CUDA).
+        """
+        self.model_path = Path(model_path)
+        if not self.model_path.exists():
+            raise FileNotFoundError(f"Model not found: {self.model_path}")
+        self.device = device
+        self._llm = None
+        self._loaded = False
+
+    def _load_model(self) -> None:
+        """Lazy-load the GGUF model via llama-cpp-python."""
+        if self._loaded:
+            return
+
+        try:
+            from llama_cpp import Llama
+        except ImportError:
+            raise ImportError(
+                "llama-cpp-python package not installed. "
+                "Run: pip install llama-cpp-python"
+            )
+
+        n_gpu = 99 if self.device == "cuda" else 0
+        self._llm = Llama(
+            model_path=str(self.model_path),
+            n_gpu_layers=n_gpu,
+            n_ctx=4096,
+        )
+        self._loaded = True
+        logger.info("LlamaCppTextEngine loaded %s on %s", self.model_path.name, self.device)
+
+    def generate(self, texts: list[str], scenario: str, cefr_level: CEFRLevel, batch_size: int | None = None) -> TextResult:
+        """Generate translations using the loaded GGUF model.
+
+        Args:
+            texts: English sentences to translate.
+            scenario: Scenario/topic description (not used with this model).
+            cefr_level: CEFR proficiency level.
+            batch_size: Not used.
+
+        Returns:
+            TextResult with one translation per input text.
+
+        Raises:
+            RuntimeError: If generation fails.
+        """
+        self._load_model()
+        prompt = self._build_translation_prompt(texts, cefr_level)
+
+        output = self._llm(
+            prompt=prompt,
+            max_tokens=512,
+            temperature=0.7,
+            echo=False,
+        )
+
+        text = output.get("choices", [{}])[0].get("text", "")
+        lines = [line.strip() for line in text.strip().split("\n") if line.strip()]
+        return TextResult(translations=lines)
+
+    def _build_translation_prompt(self, texts: list[str], cefr_level: CEFRLevel) -> str:
+        """Build prompt for translation."""
+        text_lines = "\n".join(texts)
+        target_lang = "Latvian"  # Default; can be parameterized later
+        return (
+            f"You are a translator. Translate the following {cefr_level.value} English text into {target_lang}.\n"
+            f"Translate these sentences, one per line, in order:\n"
+            f"{text_lines}\n"
+            "Output ONLY the translations, one per line. No explanations."
+        )
+
+    def unload(self) -> None:
+        """Unload the model and free GPU memory."""
+        if self._llm is not None:
+            del self._llm
+            self._llm = None
+            self._loaded = False
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
+            logger.info("LlamaCppTextEngine unloaded")
 
 
 class TTSEngine:
@@ -276,12 +376,13 @@ class ImageGenEngine:
 class EnginePool:
     """Singleton managing mutual exclusion between GPU inference engines.
 
-    Ensures only one GPU model (TTSEngine or ImageGenEngine) is loaded at a time.
-    Text engines are subprocess-based and do not consume persistent VRAM.
+    Ensures only one GPU model (LlamaCppTextEngine, TTSEngine, or ImageGenEngine)
+    is loaded at a time. Text engines that use llama-cli subprocesses do not
+    consume persistent VRAM.
 
     Usage:
         pool = EnginePool.get(config)
-        text_result = pool.get_translation_engine().translate(texts, cefr_level)
+        text_result = pool.get_translation_engine().generate(texts, scenario, cefr_level)
         # ... later ...
         audio_result = pool.get_tts_engine().synthesize(translations, output_dir)
     """
@@ -319,6 +420,7 @@ class EnginePool:
     def reset(cls) -> None:
         """Reset the singleton (useful for testing). Unloads all engines."""
         if cls._instance is not None:
+            cls._instance._unload_translation()
             cls._instance._unload_tts()
             cls._instance._unload_image()
             cls._instance = None
@@ -334,16 +436,19 @@ class EnginePool:
             device=self._config.device,
         )
 
-    def get_translation_engine(self) -> TextEngine:
-        """Get a fresh translation engine (TildeOpen).
+    def get_translation_engine(self) -> LlamaCppTextEngine:
+        """Get or create the translation engine (tiny-aya-water via llama-cpp-python).
 
-        Clears any active GPU engines before returning.
+        Unloads any active GPU engines before loading. The same instance is returned
+        on subsequent calls until explicitly unloaded.
         """
-        self._ensure_exclusive("text")
-        return TextEngine(
-            model_path=self._config.llm_model_path,
-            device=self._config.device,
-        )
+        self._ensure_exclusive("translation")
+        if self._state.translation_engine is None:
+            self._state.translation_engine = LlamaCppTextEngine(
+                model_path=self._config.llm_model_path,
+                device=self._config.device,
+            )
+        return self._state.translation_engine
 
     def get_tts_engine(self) -> TTSEngine:
         """Get or create the TTS engine.
@@ -370,12 +475,24 @@ class EnginePool:
     def _ensure_exclusive(self, target: str) -> None:
         """Unload any active GPU engine that conflicts with the target."""
         if target == "text":
+            self._unload_translation()
+            self._unload_tts()
+            self._unload_image()
+        elif target == "translation":
             self._unload_tts()
             self._unload_image()
         elif target == "tts":
+            self._unload_translation()
             self._unload_image()
         elif target == "image":
+            self._unload_translation()
             self._unload_tts()
+
+    def _unload_translation(self) -> None:
+        """Unload the translation engine if active."""
+        if self._state.translation_engine is not None:
+            self._state.translation_engine.unload()
+            self._state.translation_engine = None
 
     def _unload_tts(self) -> None:
         """Unload the TTS engine if active."""
