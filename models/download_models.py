@@ -2,10 +2,10 @@
 
 Usage:
     python -m models.download_models                  # Download all models
-    python -m models.download_models nemotron tiny_aya  # Download specific models
+    python -m models.download_models minicpm tiny_aya  # Download specific models
 
 Models:
-    nemotron        — Nemotron-3-Nano 30B-A3B IQ4_XS (llama-cli)
+    minicpm         — MiniCPM5-1B Q8_0 (llama-cpp-python)
     tiny_aya        — tiny-aya-water Q4_K_M (llama-cpp-python)
     omnivoice       — OmniVoice Q8_0 TTS (omnivoice.cpp, requires base + tokenizer)
     flux            — FLUX.2-klein 4B Q4_K_M image gen (ComfyUI-GGUF)
@@ -18,10 +18,10 @@ from pathlib import Path
 
 # Model definitions — HF Hub repos with exact GGUF filenames
 MODELS = {
-    "nemotron": {
-        "repo": "bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF",
-        "files": ["nvidia_Nemotron-3-Nano-30B-A3B-IQ4_XS.gguf"],
-        "description": "Nemotron-3-Nano 30B-A3B IQ4_XS (llama-cli)",
+    "minicpm": {
+        "repo": "Abiray/MiniCPM5-1B-GGUF",
+        "files": ["minicpm5-1b-Q8_0.gguf"],
+        "description": "MiniCPM5-1B Q8_0 text gen (llama-cpp-python)",
     },
     "tiny_aya": {
         "repo": "CohereLabs/tiny-aya-water-GGUF",
