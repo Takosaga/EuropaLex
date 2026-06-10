@@ -82,24 +82,28 @@ uv run python -m models.download_models --output-dir ./my-models
 
 ## Workflow
 
-EuropaLex generates flashcards in two phases: text first, then media.
+EuropaLex generates flashcards in two phases: English text first (Phase 1), then translation + media (Phase 2).
 
-### Phase 1 — Generate Text
+### Phase 1 — Generate English Text
 
 1. Enter a scenario or paste text in the input box
 2. Select a CEFR level (`A0`–`C2`) from the dropdown
 3. Set the batch size with the slider (number of cards to generate)
 4. Click **Generate Text**
-5. The app generates English sentences via Nemotron, then translates them via tiny-aya-water
+5. The app generates English sentences via Nemotron (`TextEngine`, llama-cli subprocess)
 6. Cards appear in the gallery with English text on the front and a placeholder on the back
 
-### Phase 2 — Generate Media
+> **Note:** Translation is deferred to Phase 2. Phase 1 produces English-only cards.
+
+### Phase 2 — Generate Translation + Media (deferred)
 
 1. After Phase 1 completes, the **Images** and **Audio** toggles become active
 2. Toggle on whichever media types you want (images, audio, or both)
 3. Click **Generate Cards**
-4. The app calls OmniVoice for text-to-speech and FLUX.2 for illustrative images
+4. The app translates via tiny-aya-water (`LlamaCppTextEngine`), then calls OmniVoice for TTS and FLUX.2 for images
 5. Cards update: translation moves to the front, English stays on the back; image and audio controls appear on the front side
+
+> **Note:** Phase 2 is currently deferred — the UI shows mock data until translation + media integration is complete.
 
 ### Export
 
@@ -125,11 +129,11 @@ User Input → [Gradio UI] → EnginePool (singleton) → TextEngine/TTS/ImageGe
 ```
 
 - **Inference:** `core/engine.py` defines five engine classes:
-  - `TextEngine` — llama-cli subprocess wrapper for Nemotron (stateless, spawns fresh process per call)
-  - `LlamaCppTextEngine` — llama-cpp-python wrapper for tiny-aya-water translation (lazy-load/unload, ~2 GB VRAM)
-  - `TTSEngine` — OmniVoice Python package with lazy-load/unload cycle (GPU memory managed by EnginePool)
-  - `ImageGenEngine` — diffusers Flux2KleinPipeline with lazy-load/unload cycle (GPU memory managed by EnginePool)
-  - `EnginePool` — singleton orchestrator enforcing mutual exclusion between all GPU engines
+  - `TextEngine` — llama-cli subprocess wrapper for Nemotron (stateless, spawns fresh process per call). Used in Phase 1 for English text generation only.
+  - `LlamaCppTextEngine` — llama-cpp-python wrapper for tiny-aya-water translation (lazy-load/unload, ~2 GB VRAM). Used in Phase 2 for translation.
+  - `TTSEngine` — OmniVoice Python package with lazy-load/unload cycle (GPU memory managed by EnginePool). Used in Phase 2 for TTS audio.
+  - `ImageGenEngine` — diffusers Flux2KleinPipeline with lazy-load/unload cycle (GPU memory managed by EnginePool). Used in Phase 2 for images.
+  - `EnginePool` — singleton orchestrator enforcing mutual exclusion between all GPU engines. Phase 1 uses only `TextEngine` (no VRAM). Phase 2 loads GPU engines sequentially: translation → TTS/images.
 - **Types:** `core/types.py` provides Pydantic models (`CardData`, `CEFRLevel`, `TextResult`, `AudioResult`, `ImageResult`, `EngineConfig`) for type-safe boundaries.
 - **Pipeline:** `core/pipeline.py` orchestrates batch generation — text first, then audio and images in parallel based on toggle state.
 - **Frontend:** `frontend/ui/cards.py` renders individual cards as HTML with conditional media elements; `generate_cards_html()` layouts them in a flex gallery with natural rotation offsets.
@@ -182,4 +186,4 @@ EuropaLex/
 `[A0, A1, A2, B1, B2, C1, C2]`
 
 - **A0:** Uses curated common words list (no text generation model needed)
-- **A1–C2:** tiny-aya-water translates English text to the target language at the selected CEFR level
+- **A1–C2:** Nemotron generates English sentences at the selected level in Phase 1; tiny-aya-water translates them in Phase 2 (deferred)
