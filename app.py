@@ -7,7 +7,11 @@ No backend connection — visual preview only.
 Run: uv sync && python app.py
 """
 
+import logging
+
 import gradio as gr
+
+logger = logging.getLogger(__name__)
 from core.engine import EnginePool, TextEngine
 from core.types import CEFRLevel, EngineConfig
 from frontend.ui.cards import render_card_html, generate_cards_html, generate_progress_html
@@ -85,13 +89,31 @@ def generate_text_async(
         engine = pool.get_english_engine()
 
         cefr = CEFRLevel(cefr_level)
+    except FileNotFoundError as e:
+        logger.error("Phase 1 model not found: %s", e)
+        yield generate_progress_html(0, f"\u26a0\ufe0f Model file missing: {e}"), (
+            '<div style="color:#c44; padding:20px;">'
+            '<strong>Model file not found.</strong><br>'
+            f'{e}<br><br>'
+            'Run <code>python models/download_models.py</code> to download required models, '
+            'or check <code>configs/settings.yaml</code> for the correct path.'
+            '</div>'
+        )
+        return
     except Exception as e:
-        yield generate_progress_html(0, f"\u26a0\ufe0f Config error: {e}"), '<div style="color:#c44; padding:20px;">Engine config error. Check configs/settings.yaml.</div>'
+        logger.error("Phase 1 setup failed: %s", e, exc_info=True)
+        yield generate_progress_html(0, f"\u26a0\ufe0f Setup error: {e}"), (
+            '<div style="color:#c44; padding:20px;">'
+            f'<strong>Failed to initialize engine.</strong><br>{e}<br><br>'
+            'Check <code>configs/settings.yaml</code> and run the smoke test: '
+            '<code>python scripts/smoke_test.py</code>'
+            '</div>'
+        )
         return
 
     # Generate English text via Nemotron
     try:
-        yield generate_progress_html(20, "Loading Nemotron model..."), ""
+        yield generate_progress_html(20, "Preparing Nemotron generation..."), ""
         texts = engine.generate(
             texts=[],  # empty = generation mode (not translation)
             scenario=scenario,
@@ -99,7 +121,19 @@ def generate_text_async(
             batch_size=batch_size,
         )
     except RuntimeError as e:
-        yield generate_progress_html(0, f"\u26a0\ufe0f Generation failed: {e}"), '<div style="color:#c44; padding:20px;">Text generation failed. Check llama-cli is installed.</div>'
+        logger.error("Phase 1 generation failed: %s", e)
+        err_detail = str(e)
+        yield generate_progress_html(0, f"\u26a0\ufe0f Generation failed"), (
+            '<div style="color:#c44; padding:20px;">'
+            f'<strong>llama-cli subprocess failed.</strong><br>'
+            f'{err_detail}<br><br>'
+            'Possible causes:<br>'
+            '• <code>llama-cli</code> not installed or not on PATH<br>'
+            '• Model file corrupted or incompatible format<br>'
+            '• Insufficient RAM/VRAM (Nemotron ~16 GB)<br><br>'
+            'Check the terminal for full error output.'
+            '</div>'
+        )
         return
 
     # Convert TextResult to card dicts for rendering

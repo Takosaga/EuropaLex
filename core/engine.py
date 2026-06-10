@@ -42,8 +42,12 @@ class TextEngine:
         """
         self.model_path = Path(config.nemotron_model_path)
         if not self.model_path.exists():
-            raise FileNotFoundError(f"Model not found: {self.model_path}")
+            raise FileNotFoundError(
+                f"Nemotron model not found at: {self.model_path}\n"
+                f"Run: python models/download_models.py --model nemotron"
+            )
         self.config = config
+        logger.info("TextEngine initialized with model: %s (%s)", self.model_path.name, self.model_path.stat().st_size // (1024**3), "GB")
 
     def generate(self, texts: list[str], scenario: str, cefr_level: CEFRLevel, batch_size: int | None = None) -> TextResult:
         """Generate text using llama-cli with full parameter control.
@@ -66,15 +70,35 @@ class TextEngine:
             prompt = self._build_generation_prompt(scenario, cefr_level, batch_size or 3)
 
         cmd = self._build_command(prompt)
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
+        logger.info("Running llama-cli: %s", " ".join(cmd[:6]) + " ...")
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("llama-cli timed out after 5 minutes (check GPU/CPU resources)")
+        except FileNotFoundError:
+            raise RuntimeError(
+                "llama-cli not found on PATH. Install from https://github.com/ggerganov/llama.cpp\n"
+                f"Ensure 'llama-cli' is accessible or add its directory to PATH."
+            )
 
         if result.returncode != 0:
-            raise RuntimeError(f"llama-cli failed (exit {result.returncode}): {result.stderr}")
+            stderr = (result.stderr or "").strip()
+            stdout = (result.stdout or "").strip()
+            msg = f"llama-cli failed (exit {result.returncode})"
+            if stderr:
+                # Show first meaningful line of stderr (often contains the real error)
+                err_lines = [l for l in stderr.split("\n") if l.strip()]
+                msg += f": {err_lines[0]}"
+            elif stdout:
+                # Sometimes useful info is on stdout
+                out_lines = [l for l in stdout.split("\n") if l.strip()]
+                msg += f" (stdout: {out_lines[-1]})"
+            raise RuntimeError(msg)
 
         lines = [line.strip() for line in result.stdout.strip().split("\n") if line.strip()]
         return TextResult(translations=lines)
