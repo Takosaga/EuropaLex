@@ -12,7 +12,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 - Python 3.12+
 - Gradio 6 (frontend UI)
 - Pydantic >=2.0.0 (type-safe data models)
-- llama-cli (text generation: Nemotron-3-Nano, GGUF format)
+- llama-cpp-python (text generation: MiniCPM5-1B Q8_0, GGUF format)
 - llama-cpp-python (translation: tiny-aya-water Q4_K_M, GGUF format)
 - omnivoice (PyPI package, lazy-load/unload via EnginePool)
 - diffusers >=0.28.0 (image gen: FLUX.2-klein 4B, lazy-load/unload via EnginePool)
@@ -23,7 +23,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 **Models:**
 | Model | Repo | Runtime | Role |
 |---|---|---|---|
-| Nemotron-3-Nano 30B-A3B IQ4_XS | [bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF](https://huggingface.co/bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF) | llama-cli | English text generation (Phase 1) |
+| MiniCPM5-1B Q8_0 | [Abiray/MiniCPM5-1B-GGUF](https://huggingface.co/Abiray/MiniCPM5-1B-GGUF) | llama-cpp-python | English text generation (Phase 1) |
 | tiny-aya-water Q4_K_M | [CohereLabs/tiny-aya-water-GGUF](https://huggingface.co/CohereLabs/tiny-aya-water-GGUF) | llama-cpp-python | Translation (active) |
 | TildeOpen-30b Q4_K_S ⚠️ | [bartowski/TildeAI_TildeOpen-30b-GGUF](https://huggingface.co/bartowski/TildeAI_TildeOpen-30b-GGUF) | llama-cli | Translation (available, not active) |
 | OmniVoice Q8_0 | [Serveurperso/OmniVoice-GGUF](https://huggingface.co/Serveurperso/OmniVoice-GGUF) | omnivoice.cpp | Text-to-speech |
@@ -69,7 +69,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 ### Naming
 
 - **Modules (lowercase, underscore):** `apkg_generator`, `anki_tunnel`, `download_models`
-- **Classes (PascalCase):** `CardData`, `CEFRLevel`, `TextEngine`, `LlamaCppTextEngine`, `TTSEngine`, `ImageGenEngine`, `EnginePool`, `InferenceEngine` (legacy protocol)
+- **Classes (PascalCase):** `CardData`, `CEFRLevel`, `MiniCPMTextEngine`, `LlamaCppTextEngine`, `TTSEngine`, `ImageGenEngine`, `EnginePool`, `InferenceEngine` (legacy protocol)
 - **Functions/variables (snake_case):** `render_card_html`, `generate_cards_html`, `batch_size`
 - **Constants (UPPER_SNAKE_CASE):** None currently needed; keep config in YAML
 
@@ -83,12 +83,12 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 ### Data Flow Through the App
 
 ```
-User input → app.py click handler → EnginePool.get(config) → TextEngine (Nemotron, Phase 1) → LlamaCppTextEngine (translation, Phase 2) → TTSEngine/ImageGenEngine (media, Phase 2) → frontend/ui/cards.py rendering → Gradio output
+User input → app.py click handler → EnginePool.get(config) → MiniCPMTextEngine (Phase 1) → LlamaCppTextEngine (translation, Phase 2) → TTSEngine/ImageGenEngine (media, Phase 2) → frontend/ui/cards.py rendering → Gradio output
 ```
 
 When adding a new feature, follow this chain. Don't bypass `pipeline.py` — even single-card generation should go through it for consistency.
 
-**EnginePool singleton:** Manages mutual exclusion between all GPU engines: `LlamaCppTextEngine` (translation, ~2 GB VRAM), `TTSEngine` (TTS), and `ImageGenEngine` (images). Only one can be loaded at a time. `TextEngine` is subprocess-based with no persistent VRAM.
+**EnginePool singleton:** Manages mutual exclusion between all GPU engines: `MiniCPMTextEngine` (~1.1 GB RAM), `LlamaCppTextEngine` (translation, ~2 GB VRAM), `TTSEngine` (TTS), and `ImageGenEngine` (images). Only one can be loaded at a time.
 
 ## Frontend Patterns
 
@@ -125,7 +125,7 @@ The UI operates in two distinct phases:
 
 **Phase 1 — Generate English Text:**
 1. User clicks "Generate Text"
-2. `app.py` calls the text generation handler → Nemotron (`TextEngine`, llama-cli subprocess) generates English sentences from the scenario
+2. `app.py` calls the text generation handler → MiniCPM5-1B (`MiniCPMTextEngine`, llama-cpp-python, lazy-load/unload) generates English sentences from the scenario
 3. Cards render with English on the front, placeholder back (dashed line)
 4. After completion, `_enable_phase2()` removes disabled CSS and enables toggles + "Generate Cards" button
 
@@ -179,16 +179,15 @@ Five concrete engine classes replace the legacy `InferenceEngine` protocol:
 
 | Class | Backend | Lifecycle |
 |---|---|---|
-| `TextEngine` | llama-cli subprocess | Stateless — spawns fresh process per `.generate()` call. Used in Phase 1 for English text generation only. |
+| `MiniCPMTextEngine` | llama-cpp-python (GGUF) | Lazy-load on first `.generate()`, unload after completion (~1.1 GB RAM). Uses `apply_chat_template`. Used in Phase 1 for English text generation. |
 | `LlamaCppTextEngine` | llama-cpp-python (GGUF) | Lazy-load on first `.generate()`, unload after completion (~2 GB VRAM). Used in Phase 2 for translation. |
 | `TTSEngine` | omnivoice (PyTorch) | Lazy-load on first `.synthesize()`, unload after completion. Used in Phase 2 for TTS audio. |
 | `ImageGenEngine` | diffusers Flux2KleinPipeline (PyTorch) | Lazy-load on first `.generate()`, unload after completion. Used in Phase 2 for images. |
-| `EnginePool` | Singleton factory | Manages mutual exclusion between all GPU engines. Phase 1 uses only `TextEngine` (no VRAM). Phase 2 loads GPU engines sequentially: translation → TTS/images. |
+| `EnginePool` | Singleton factory | Manages mutual exclusion between all GPU engines. Phase 1 uses only `MiniCPMTextEngine` (~1.1 GB RAM). Phase 2 loads GPU engines sequentially: translation → TTS/images. |
 
 **Rules:**
 - All inference goes through `EnginePool.get(config)` — never instantiate engines directly in app code.
-- GPU engines (LlamaCppTextEngine, TTSEngine, ImageGenEngine) are lazy-loaded and unloaded via `del` + `torch.cuda.empty_cache()`.
-- Text engines (`TextEngine`) spawn subprocesses — no persistent VRAM consumption.
+- All engines (MiniCPMTextEngine, LlamaCppTextEngine, TTSEngine, ImageGenEngine) are lazy-loaded and unloaded via `del` + `torch.cuda.empty_cache()`.
 - Each engine class should be self-contained. Don't share state between implementations.
 
 ### pipeline.py
