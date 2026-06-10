@@ -5,7 +5,7 @@ models:
   directory: .local/models
   nemotron:
     repo: bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF
-    file: Nemotron-3-Nano-30B-A3B-IQ4_XS.gguf
+    file: nvidia_Nemotron-3-Nano-30B-A3B-IQ4_XS.gguf
     runtime: llama-cli
     quant: IQ4_XS
   tiny_aya:
