@@ -1,2 +1,194 @@
-/* EuropaLex Custom CSS */
-/* Off-brand styling overrides for Gradio — card-like containers, custom typography */
+/* EuropaLex Custom CSS — Plain White */
+
+/* === Page Background: White === */
+body, .gradio-container {
+    background: #ffffff !important;
+    min-height: 100vh;
+}
+
+/* Hide Gradio's default top bar */
+.header {
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+/* === App Container === */
+.main-app-container {
+    background: #ffffff !important;
+    border-radius: 10px !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important;
+    padding: 20px !important;
+}
+
+/* === Input Panel Styling === */
+.input-panel {
+    padding: 10px 0;
+}
+
+.input-panel .form {
+    gap: 12px !important;
+}
+
+/* === Flashcard Gallery Layout === */
+.flashcard-gallery {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    justify-content: center;
+    padding: 16px 0;
+}
+
+/* === Individual Flashcard === */
+.flashcard {
+    background: #ffffff !important;
+    border-radius: 8px !important;
+    padding: 14px 16px !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
+    border: 1px solid #e0e0e0 !important;
+    width: 170px;
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.flashcard:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
+    transition: all 0.2s ease;
+}
+
+/* === Card Text Styling === */
+.flashcard .front-text {
+    font-size: 0.95em;
+    font-weight: bold;
+    color: #1a1a1a;
+    margin-bottom: 6px;
+    line-height: 1.35;
+}
+
+.flashcard .back-text {
+    font-size: 0.78em;
+    color: #666666;
+    line-height: 1.35;
+    border-top: 1px solid #e0e0e0;
+    padding-top: 6px;
+}
+
+/* === Media Buttons (Audio + Image) === */
+.flashcard .media-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    align-items: center;
+}
+
+.media-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 50% !important;
+    background: #f5f5f5 !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    cursor: default;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.08) !important;
+}
+
+/* === Image Placeholder in Card === */
+.img-placeholder {
+    width: 100%;
+    height: 40px;
+    background: #f5f5f5;
+    border-radius: 6px;
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    border: 1px dashed #d0d0d0;
+}
+
+/* === Export Bar === */
+.export-bar {
+    padding-top: 12px;
+    margin-top: 8px;
+    border-top: 1px solid #e0e0e0;
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+}
+
+.export-btn {
+    padding: 5px 14px !important;
+    background: #f0f0f0 !important;
+    color: #999999 !important;
+    border-radius: 6px !important;
+    font-size: 0.75em !important;
+    cursor: default !important;
+    opacity: 0.55 !important;
+    text-decoration: line-through !important;
+    box-shadow: none !important;
+}
+
+.export-btn:hover {
+    opacity: 0.55 !important;
+    transform: none !important;
+}
+
+/* === Section Headers === */
+.section-title {
+    color: #1a1a1a;
+    font-size: 0.9em;
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+/* === Generate Button Styling === */
+.generate-btn {
+    background: #1a1a1a !important;
+    color: white !important;
+    font-weight: bold;
+    border-radius: 6px !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15) !important;
+}
+
+.generate-btn:hover {
+    background: #333333 !important;
+}
+
+/* === Dropdown & Textbox Overrides === */
+.gradio-dropdown, .gradio-textbox {
+    border-radius: 6px !important;
+    border: 1px solid #d0d0d0 !important;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.04) !important;
+}
+
+/* === Slider Overrides === */
+.gradio-slider {
+    border-radius: 6px !important;
+}
+
+/* ─── Two-Phase Generation: Disabled States ─────────────────────── */
+
+.europalex-btn-disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.europalex-toggle-disabled .md:has(input[type="checkbox"]) {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* Card placeholder back side styling */
+.card-placeholder-back {
+    border-top: 2px dashed #d0d0d0;
+    padding-top: 6px;
+    font-size: 0.78em;
+    color: #aaaaaa;
+    min-height: 1.2em;
+}

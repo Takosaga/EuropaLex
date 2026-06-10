@@ -217,38 +217,31 @@ The following models will be used but are not downloaded as part of the repo set
 
 ```
 EuropaLex/
-├── pyproject.toml          # Single source of truth, uv
-├── README.md               # Models list, setup instructions
-├── .gitignore
-├── core/                   # Shared dataclasses, pipeline logic, inference abstraction
+├── pyproject.toml          # Optional - uv export here
+│   # Or export with: uv export > requirements.txt
+├── requirements.txt        # ← REQUIRED for pip install
+├── app.py                  # ← REQUIRED entry point (or main.py)
+├── core/                   # Your shared modules
+│   ├── __init__.py         # Python package marker
+│   ├── engine.py           # InferenceEngine protocol + implementations
+│   ├── pipeline.py         # Batch generator: text → audio → image
+│   └── types.py            # Card, CardData, CEFRLevel dataclasses
+├── frontend/               # Gradio UI code inside app.py
 │   ├── __init__.py
-│   ├── types.py            # Card, CardData, CEFRLevel dataclasses
-│   ├── engine.py           # InferenceEngine protocol + Local/Modal implementations
-│   └── pipeline.py         # Batch generator: text → audio → image
-├── models/                 # Git submodules live here
-│   ├── tilde-open/         # submodule: TildeOpen-30b wrapper (text gen)
-│   ├── omnivoice/          # submodule: OmniVoice wrapper (TTS)
-│   └── flux/               # submodule: FLUX.2-klein wrapper (image gen)
-├── frontend/               # Gradio app with custom CSS
-│   ├── app.py              # Entry point (thin — delegates to pipeline)
-│   ├── ui/                 # UI components, layouts
-│   │   ├── widgets.py      # Custom styled widgets
-│   │   └── cards.py        # Card display components
-│   ├── css/
-│   │   └── custom.css      # Off-brand styling overrides
-│   └── templates/          # HTML templates if needed
-├── export/                 # Anki card export + tunnel sync
+│   ├── css/custom.css      # Custom card styling
+│   └── ui/                 # Widget and card components
+├── models/                 # ← Use HF Hub URLs instead of submodules!
 │   ├── __init__.py
-│   ├── apkg_generator.py   # .apkg file creation
-│   ├── csv_export.py       # CSV fallback export
-│   └── anki_tunnel.py      # Tunnel mode sync to local Anki
-├── configs/                # Config files (batch size, CEFR defaults)
+│   └── download_models.py  # Script to fetch from HF Hub at runtime
+├── configs/                # Settings, word lists
 │   └── settings.yaml
-├── scripts/                # Utility scripts
-│   └── smoke_test.py       # End-to-end smoke test with mocks
-└── .modal/                 # Modal deployment config
-    ├── requirements.txt
-    └── app.py              # Modal endpoint definitions
+├── export/                 # .apkg generator
+│   ├── __init__.py
+│   ├── apkg_generator.py
+│   ├── csv_export.py
+│   └── anki_tunnel.py
+└── README.md               # Documentation
+`
 ```
 
 ---
@@ -261,7 +254,7 @@ EuropaLex/
 | Submodule boundary | Each model as a submodule | Clean per-model boundaries, easy to swap models later |
 | Communication between submodules | Shared dataclasses via core lib | Type-safe interfaces without service overhead |
 | Repo layout | Monorepo with submodules | Clean boundaries without excessive repo management |
-| Dependency management | pyproject.toml (uv-native) | Single source of truth, HF Spaces supports uv natively |
+| Dependency management | pyproject.toml (uv-native) | Single source of truth, HF Spaces uses requirements.txt |
 | A0 path | Curated common words list | Skips text generation model entirely, faster for beginners |
 | Anki integration | Hybrid: export + tunnel | Works for everyone (export) AND power users (tunnel sync) |
 | Local vs. remote | Auto-detect via ENV var | Same codebase works locally (llama.cpp) and on Spaces (Modal) |
@@ -269,5 +262,3 @@ EuropaLex/
 | Batch size | Default 3 cards, adjustable | Manageable for hackathon demo, easy to scale later |
 
 ---
-
-*Design approved by user. Ready to transition to implementation planning.*
