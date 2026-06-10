@@ -16,17 +16,15 @@ Remove translation from Phase 1 entirely. Phase 1 generates only English text. T
 
 **After:** Calls only Nemotron (`TextEngine`, subprocess-based, no persistent VRAM). No translation step. Cards render with English on front, dashed placeholder back.
 
-### app.py — Phase 2 handler
+### app.py — Phase 2 handler (deferred)
 
-**Before:** Generates TTS audio and images only. Translation was already present from Phase 1.
-
-**After:** Calls `LlamaCppTextEngine` (tiny-aya-water) for translation first, then generates TTS + images. Translation appears on card front alongside media; English moves to back.
+**Out of scope for this cycle.** Will be implemented separately: add `LlamaCppTextEngine` call for translation at the start of Phase 2, then TTS + images. Translation appears on card front alongside media; English moves to back.
 
 ### core/pipeline.py — Batch orchestration
 
 **Phase 1 batch:** Only text outputs (English). No translation step.
 
-**Phase 2 batch:** Translation → audio → image outputs. Order matters: translation must complete before cards can render with translation on the front.
+**Phase 2 batch (deferred):** Translation → audio → image outputs. Will be updated in a follow-up.
 
 ### EnginePool lifecycle
 
@@ -41,7 +39,7 @@ Remove translation from Phase 1 entirely. Phase 1 generates only English text. T
 
 Update the "Two-Phase Generation Workflow" section to reflect:
 - Phase 1: Generate English text (Nemotron only)
-- Phase 2: Generate Translation + Media (tiny-aya-water → TTS → images)
+- Phase 2: Generate Translation + Media (deferred — tiny-aya-water → TTS → images)
 
 Also update the data flow diagram and engine descriptions where they reference Phase 1 loading GPU engines.
 
@@ -57,9 +55,13 @@ Also update the data flow diagram and engine descriptions where they reference P
 
 | File | Change |
 |---|---|
-| `app.py` | Remove translation call from Phase 1 handler; add translation call at start of Phase 2 handler |
-| `core/pipeline.py` | Update batch config for Phase 1 (text-only) and Phase 2 (translation + audio + image) |
+| `app.py` | Remove translation call from Phase 1 handler |
+| `core/pipeline.py` | Update batch config for Phase 1 (text-only); Phase 2 batch updated in follow-up |
 | `AGENTS.md` | Update two-phase workflow section, data flow diagram, engine lifecycle notes |
+
+## Out of Scope
+
+Phase 2 handler changes (adding translation call) are deferred to a separate cycle. Only Phase 1 is in scope for this implementation.
 
 ## Risk Assessment
 
