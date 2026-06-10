@@ -55,20 +55,18 @@ class EngineConfig(BaseModel):
 
     models_dir: str = ".local/models"
     llm_model_path: str  # Path to TildeOpen GGUF file
-    nemotron_model_path: str  # Path to Nemotron GGUF file
+    minicpm_model_path: str  # Path to MiniCPM5-1B Q8_0 GGUF file
     device: str = "cuda"  # "cuda", "mps", or "cpu"
     batch_size: int = 3
 
     # llama-cli generation parameters (Nemotron / TextEngine)
-    n_ctx: int = 32768  # Context length in tokens
+    n_ctx: int = 4096  # Context length in tokens
     n_threads: int = 5  # CPU thread pool size
     n_batch: int = 4096  # Evaluation batch size
-    n_ubatch: int = 1024  # Physical (micro) batch size
     top_k: int = 40  # Top-K sampling
     repeat_penalty: float = 1.1  # Repeat penalty
     top_p: float = 0.9  # Top-P (nucleus) sampling
     min_p: float = 0.05  # Min-P sampling
-    n_cpu_moe: int = 36  # Number of MoE expert layers forced to CPU (llama.cpp only)
     temperature: float = 0.7  # Generation temperature
     max_tokens: int = 512  # Maximum response length
 
@@ -112,18 +110,16 @@ class EngineConfig(BaseModel):
         return cls(
             models_dir=models.get("directory", ".local/models"),
             llm_model_path=str(Path(models.get("directory", ".local/models")) / llm_subdir / llm_cfg["file"]),
-            nemotron_model_path=str(Path(models.get("directory", ".local/models")) / "nemotron" / models["nemotron"]["file"]),
+            minicpm_model_path=str(Path(models.get("directory", ".local/models")) / "minicpm" / models["minicpm"]["file"]),
             device=device,
             batch_size=batch.get("default_size", 3),
-            n_ctx=gen.get("n_ctx", 32768),
+            n_ctx=gen.get("n_ctx", 4096),
             n_threads=gen.get("n_threads", 5),
             n_batch=gen.get("n_batch", 4096),
-            n_ubatch=gen.get("n_ubatch", 1024),
             top_k=gen.get("top_k", 40),
             repeat_penalty=gen.get("repeat_penalty", 1.1),
             top_p=gen.get("top_p", 0.9),
             min_p=gen.get("min_p", 0.05),
-            n_cpu_moe=gen.get("n_cpu_moe", 36),
             temperature=gen.get("temperature", 0.7),
             max_tokens=gen.get("max_tokens", 512),
         )
