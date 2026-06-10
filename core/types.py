@@ -90,7 +90,7 @@ class EngineConfig(BaseModel):
             pass  # torch not installed yet; default to cuda
 
         # Resolve LLM model path — supports both GGUF (llama-cli) and transformers runtimes
-        llm_cfg = models.get("tiny_aya") or models.get("tildeopen")
+        llm_cfg = models.get("tiny_aya") # or models.get("tildeopen")
         llm_runtime = llm_cfg.get("runtime", "llama-cli") if llm_cfg else "llama-cli"
         llm_subdir = "tiny_aya" if llm_runtime in ("transformers", "llama-cpp-python") else ("tildeopen" if llm_cfg else "tildeopen")
 
