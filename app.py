@@ -12,7 +12,7 @@ import logging
 import gradio as gr
 
 logger = logging.getLogger(__name__)
-from core.engine import EnginePool, TextEngine
+from core.engine import EnginePool, MiniCPMTextEngine
 from core.types import CEFRLevel, EngineConfig
 from frontend.ui.cards import render_card_html, generate_cards_html, generate_progress_html
 from frontend.ui.widgets import create_toggle
@@ -95,7 +95,7 @@ def generate_text_async(
             '<div style="color:#c44; padding:20px;">'
             '<strong>Model file not found.</strong><br>'
             f'{e}<br><br>'
-            'Run <code>python models/download_models.py</code> to download required models, '
+            'Run <code>python models/download_models.py minicpm</code> to download MiniCPM5-1B, '
             'or check <code>configs/settings.yaml</code> for the correct path.'
             '</div>'
         )
@@ -113,7 +113,7 @@ def generate_text_async(
 
     # Generate English text via Nemotron
     try:
-        yield generate_progress_html(20, "Preparing Nemotron generation..."), ""
+        yield generate_progress_html(20, "Preparing MiniCPM5-1B generation..."), ""
         texts = engine.generate(
             texts=[],  # empty = generation mode (not translation)
             scenario=scenario,
@@ -125,12 +125,11 @@ def generate_text_async(
         err_detail = str(e)
         yield generate_progress_html(0, f"\u26a0\ufe0f Generation failed"), (
             '<div style="color:#c44; padding:20px;">'
-            f'<strong>llama-cli subprocess failed.</strong><br>'
+            f'<strong>MiniCPM5-1B generation failed.</strong><br>'
             f'{err_detail}<br><br>'
             'Possible causes:<br>'
-            '• <code>llama-cli</code> not installed or not on PATH<br>'
             '• Model file corrupted or incompatible format<br>'
-            '• Insufficient RAM/VRAM (Nemotron ~16 GB)<br><br>'
+            '• Insufficient VRAM (~1.1 GB required)<br><br>'
             'Check the terminal for full error output.'
             '</div>'
         )
