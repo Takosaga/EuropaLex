@@ -27,25 +27,26 @@ class _EngineState:
 
 
 class TextEngine:
-    """Generates text using llama-cli subprocess with Nemotron or TildeOpen.
+    """Generates text using llama-cli subprocess with Nemotron.
 
     Each call spawns a fresh subprocess — no model persists in memory between calls.
+    Supports full llama.cpp parameter control: context size, batch sizes, sampling,
+    MoE layer placement (n-cpu-moe), and more.
     """
 
-    def __init__(self, model_path: str, device: str = "cuda"):
+    def __init__(self, config: EngineConfig):
         """Initialize the text engine.
 
         Args:
-            model_path: Absolute path to the GGUF model file.
-            device: Device hint passed to llama-cli (informational; -ngl 99 used).
+            config: EngineConfig with model path and generation parameters.
         """
-        self.model_path = Path(model_path)
+        self.model_path = Path(config.nemotron_model_path)
         if not self.model_path.exists():
             raise FileNotFoundError(f"Model not found: {self.model_path}")
-        self.device = device
+        self.config = config
 
     def generate(self, texts: list[str], scenario: str, cefr_level: CEFRLevel, batch_size: int | None = None) -> TextResult:
-        """Generate text using llama-cli.
+        """Generate text using llama-cli with full parameter control.
 
         Args:
             texts: English sentences to translate (for TildeOpen) or empty list (for Nemotron).
@@ -64,16 +65,9 @@ class TextEngine:
         else:
             prompt = self._build_generation_prompt(scenario, cefr_level, batch_size or 3)
 
+        cmd = self._build_command(prompt)
         result = subprocess.run(
-            [
-                "llama-cli",
-                "-m", str(self.model_path),
-                "-p", prompt,
-                "-n", "512",
-                "--temp", "0.7",
-                "-ngl", "99",
-                "--no-mmap",
-            ],
+            cmd,
             capture_output=True,
             text=True,
             timeout=300,
@@ -84,6 +78,40 @@ class TextEngine:
 
         lines = [line.strip() for line in result.stdout.strip().split("\n") if line.strip()]
         return TextResult(translations=lines)
+
+    def _build_command(self, prompt: str) -> list[str]:
+        """Build the llama-cli command with all generation parameters.
+
+        Args:
+            prompt: The prompt text to send to the model.
+
+        Returns:
+            Complete llama-cli command as a list of CLI arguments.
+        """
+        c = self.config
+        cmd = [
+            "llama-cli",
+            "-m", str(self.model_path),
+            "-p", prompt,
+            # Context & batching
+            "--ctx-size", str(c.n_ctx),
+            "--batch-size", str(c.n_batch),
+            "--ubatch-size", str(c.n_ubatch),
+            "--threads", str(c.n_threads),
+            # Model placement
+            "-ngl", "999",
+            f"--n-cpu-moe", str(c.n_cpu_moe),
+            "--no-mmap",
+            "--offload-kqv",
+            # Generation
+            "-n", str(c.max_tokens),
+            "--temp", str(c.temperature),
+            "--top-k", str(c.top_k),
+            "--repeat-penalty", str(c.repeat_penalty),
+            "--top-p", str(c.top_p),
+            "--min-p", str(c.min_p),
+        ]
+        return cmd
 
     def _build_translation_prompt(self, texts: list[str], scenario: str, cefr_level: CEFRLevel) -> str:
         """Build prompt for TildeOpen translation."""
@@ -429,12 +457,10 @@ class EnginePool:
         """Get a fresh English text generation engine (Nemotron).
 
         Clears any active GPU engines before returning.
+        Uses full EngineConfig for all llama-cli generation parameters.
         """
         self._ensure_exclusive("text")
-        return TextEngine(
-            model_path=self._config.nemotron_model_path,
-            device=self._config.device,
-        )
+        return TextEngine(config=self._config)
 
     def get_translation_engine(self) -> LlamaCppTextEngine:
         """Get or create the translation engine (tiny-aya-water via llama-cpp-python).
