@@ -1,68 +1,66 @@
 """Download models from Hugging Face Hub at runtime.
 
 Usage:
-    python -m models.download_models          # Download all models
-    python -m models.download_models tilde-open  # Download specific model
+    python -m models.download_models                  # Download all models
+    python -m models.download_models nemotron tiny_aya  # Download specific models
+
+Models:
+    nemotron        — Nemotron-3-Nano 30B-A3B IQ4_XS (llama-cli)
+    tiny_aya        — tiny-aya-water Q4_K_M (llama-cpp-python)
+    omnivoice       — OmniVoice Q8_0 TTS (omnivoice.cpp, requires base + tokenizer)
+    flux            — FLUX.2-klein 4B Q4_K_M image gen (ComfyUI-GGUF)
 """
 
 import argparse
-import os
+import concurrent.futures
 from pathlib import Path
 
-# Model definitions — HF Hub URLs (no git submodules needed)
+
+# Model definitions — HF Hub repos with exact GGUF filenames
 MODELS = {
-    "tilde-open": {
-        "repo": "TildeAI/TildeOpen-30b",
-        "files": ["*.gguf"],
-        "description": "TildeOpen-30b text generation",
+    "nemotron": {
+        "repo": "bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF",
+        "files": ["nvidia_Nemotron-3-Nano-30B-A3B-IQ4_XS.gguf"],
+        "description": "Nemotron-3-Nano 30B-A3B IQ4_XS (llama-cli)",
+    },
+    "tiny_aya": {
+        "repo": "CohereLabs/tiny-aya-water-GGUF",
+        "files": ["tiny-aya-water-q4_k_m.gguf"],
+        "description": "tiny-aya-water q4_k_m translation (llama-cpp-python)",
     },
     "omnivoice": {
-        "repo": "k2-fsa/OmniVoice",
-        "files": ["*"],
-        "description": "OmniVoice TTS",
+        "repo": "Serveurperso/OmniVoice-GGUF",
+        "files": ["omnivoice-base-Q8_0.gguf", "omnivoice-tokenizer-Q8_0.gguf"],
+        "description": "OmniVoice Q8_0 TTS (base + tokenizer, omnivoice.cpp)",
     },
     "flux": {
-        "repo": "black-forest-labs/FLUX.2-klein-4B",
-        "files": ["*"],
-        "description": "FLUX.2-klein image generation",
+        "repo": "unsloth/FLUX.2-klein-4B-GGUF",
+        "files": ["flux-2-klein-4b-Q4_K_M.gguf"],
+        "description": "FLUX.2-klein 4B Q4_K_M image gen (ComfyUI-GGUF)",
     },
 }
 
 
 def download_model(name: str, target_dir: Path) -> None:
-    """Download a single model from HF Hub."""
+    """Download a single model from HF Hub using Python API."""
     info = MODELS[name]
     output_dir = target_dir / name
 
     print(f"Downloading {info['description']} ({info['repo']})...")
     print(f"  Target: {output_dir}")
+    for f in info["files"]:
+        print(f"  📦 {f}")
+    print()
 
-    try:
-        from huggingface_hub import snapshot_download
+    from huggingface_hub import snapshot_download
 
-        snapshot_download(
-            repo_id=info["repo"],
-            allow_patterns=info["files"],
-            local_dir=str(output_dir),
-            resume_download=True,
-        )
-        print(f"  ✓ Done")
-    except ImportError:
-        # Fallback: use huggingface-cli
-        import subprocess
-
-        subprocess.run(
-            [
-                "huggingface-cli",
-                "download",
-                info["repo"],
-                "--include",
-                ",".join(info["files"]),
-                "--local-dir",
-                str(output_dir),
-            ],
-            check=True,
-        )
+    snapshot_download(
+        repo_id=info["repo"],
+        allow_patterns=info["files"],
+        local_dir=str(output_dir),
+        resume_download=True,
+    )
+    print(f"  ✓ Done — {output_dir}\n")
 
 
 def main():
@@ -86,8 +84,27 @@ def main():
 
     models_to_download = args.models if args.models else list(MODELS.keys())
 
-    for name in models_to_download:
-        download_model(name, output_dir)
+    print(f"Starting {len(models_to_download)} download(s) with 4 parallel workers...\n")
+
+    errors = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {
+            executor.submit(download_model, name, output_dir): name
+            for name in models_to_download
+        }
+        for future in concurrent.futures.as_completed(futures):
+            name = futures[future]
+            try:
+                future.result()
+            except Exception as e:
+                errors.append((name, str(e)))
+                print(f"  ✗ {name} failed: {e}\n")
+
+    if errors:
+        print(f"\n{len(errors)} model(s) failed to download.")
+        raise SystemExit(1)
+    else:
+        print(f"All {len(models_to_download)} model(s) downloaded successfully.")
 
 
 if __name__ == "__main__":

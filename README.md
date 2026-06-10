@@ -1,6 +1,8 @@
-# EuropaLex
+# Europa Lex
 
-Generate Anki flashcards for European languages using local AI models. Starting with Latvian, designed to support any language available through TildeOpen.
+AI-powered flashcard generator for European languages. Generates target-language translations, text-to-speech audio, and illustrative images — exports directly as Anki decks (`.apkg`) or CSV.
+
+> **Note:** All commands and paths in this document are relative to the `EuropaLex/` project root. Assume you are already inside this directory.
 
 ## Hackathon Criteria
 
@@ -24,30 +26,53 @@ pip install -r requirements.txt
 Run the app:
 
 ```bash
-python app.py
+uv run app.py
 ```
+
+> **Dependencies:** This project requires PyTorch, diffusers, omnivoice, pydantic, and soundfile in addition to Gradio. These are installed automatically by `uv sync`.
+
+### Running Smoke Tests
+
+Before committing, verify all modules load correctly:
+
+```bash
+uv run python scripts/smoke_test.py
+```
+
+This checks imports for core types, engine classes, frontend UI, and the app module.
 
 ### Model Weights
 
-Models are downloaded from Hugging Face Hub at runtime (no git submodules):
+All models are GGUF format, downloaded from Hugging Face Hub at runtime (no git submodules). Each model uses a different runtime:
 
 ```bash
 # Download all models
-python -m models.download_models
+uv run python -m models.download_models
 
 # Or download specific models
-python -m models.download_models tilde-open omnivoice
+uv run python -m models.download_models nemotron tiny_aya  # Text generation only (~20 GB)
+uv run python -m models.download_models omnivoice           # TTS only (~945 MB)
+uv run python -m models.download_models flux                # Image gen only (~2.6 GB)
 
 # Custom output directory
-python -m models.download_models --output-dir ./my-models
+uv run python -m models.download_models --output-dir ./my-models
 ```
 
-| Model | HF Hub | Purpose |
-|---|---|---|
-| Nemotron-3-Nano-30B-A3B-GGUF | [unsloth/Nemotron-3-Nano-30B-A3B-GGUF](https://huggingface.co/unsloth/Nemotron-3-Nano-30B-A3B-GGUF) | General inference via llama.cpp runtime |
-| TildeOpen-30b | [TildeAI/TildeOpen-30b](https://huggingface.co/TildeAI/TildeOpen-30b) | Generate target-language text at CEFR levels |
-| OmniVoice | [k2-fsa/OmniVoice](https://huggingface.co/k2-fsa/OmniVoice) | Text-to-speech for card audio |
-| FLUX.2-klein-4B | [black-forest-labs/FLUX.2-klein-4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B) | Generate illustrative images for cards |
+| Model | HF Hub Repo | GGUF File | Runtime | Size | Role |
+|---|---|---|---|---|---|
+| Nemotron-3-Nano 30B-A3B IQ4_XS | [bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF](https://huggingface.co/bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF) | `Nemotron-3-Nano-30B-A3B-IQ4_XS.gguf` | llama-cli | 18.1 GB | English text generation (Phase 1) |
+| tiny-aya-water q4_k_m | [CohereLabs/tiny-aya-water-GGUF](https://huggingface.co/CohereLabs/tiny-aya-water-GGUF) | `tiny-aya-water-q4_k_m.gguf` | llama-cpp-python | ~2 GB | Translation (active) |
+| TildeOpen-30b Q4_K_S ⚠️ | [bartowski/TildeAI_TildeOpen-30b-GGUF](https://huggingface.co/bartowski/TildeAI_TildeOpen-30b-GGUF) | `TildeAI_TildeOpen-30b-Q4_K_S.gguf` | llama-cli | 17.6 GB | Translation (available, not active) |
+| OmniVoice Q8_0 (base + tokenizer) | [Serveurperso/OmniVoice-GGUF](https://huggingface.co/Serveurperso/OmniVoice-GGUF) | `omnivoice-base-Q8_0.gguf` + `omnivoice-tokenizer-Q8_0.gguf` | omnivoice.cpp | ~945 MB | Text-to-speech |
+| FLUX.2-klein 4B Q4_K_M | [unsloth/FLUX.2-klein-4B-GGUF](https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF) | `flux-2-klein-4b-Q4_K_M.gguf` | ComfyUI-GGUF / diffusers | ~2.6 GB | Image generation |
+
+> **Note:** Models use different runtimes:
+> - **llama-cli** for Nemotron (English text generation) — subprocess-based, no persistent VRAM
+> - **llama-cpp-python** for tiny-aya-water (translation) — lazy-load/unload via Python bindings (~2 GB VRAM)
+> - **omnivoice.cpp** for OmniVoice — text-to-speech (C++/GGML port)
+> - **ComfyUI-GGUF / diffusers** for FLUX.2 — image generation (diffusion model)
+>
+> ⚠️ TildeOpen is still downloaded and available but not the active translation model. See `configs/settings.yaml` to switch back.
 
 ### Anki Integration
 
@@ -55,34 +80,101 @@ python -m models.download_models --output-dir ./my-models
 
 **Tunnel sync (power users):** Run `npx @ankimcp/anki-mcp-server --tunnel` locally, then use the "Sync to Anki" button in the app.
 
+## Workflow
+
+EuropaLex generates flashcards in two phases: text first, then media.
+
+### Phase 1 — Generate Text
+
+1. Enter a scenario or paste text in the input box
+2. Select a CEFR level (`A0`–`C2`) from the dropdown
+3. Set the batch size with the slider (number of cards to generate)
+4. Click **Generate Text**
+5. The app generates English sentences via Nemotron, then translates them via tiny-aya-water
+6. Cards appear in the gallery with English text on the front and a placeholder on the back
+
+### Phase 2 — Generate Media
+
+1. After Phase 1 completes, the **Images** and **Audio** toggles become active
+2. Toggle on whichever media types you want (images, audio, or both)
+3. Click **Generate Cards**
+4. The app calls OmniVoice for text-to-speech and FLUX.2 for illustrative images
+5. Cards update: translation moves to the front, English stays on the back; image and audio controls appear on the front side
+
+### Export
+
+1. Once cards are generated, click **Export to Anki** (`.apkg`) or **Export as CSV**
+2. For power users: run `npx @ankimcp/anki-mcp-server --tunnel` locally and use the Sync to Anki button in the app
+
+## Architecture
+
+EuropaLex is organized into five main modules:
+
+| Module | Purpose |
+|---|---|
+| `core/` | Data types (`types.py`), inference engine protocol + implementations (`engine.py`), batch pipeline orchestrator (`pipeline.py`) |
+| `frontend/` | Gradio 6 UI: styled toggles (`widgets.py`), card rendering with two-phase layout (`cards.py`), custom CSS (`css/custom.css`) |
+| `models/` | Hugging Face Hub model downloader — fetches models at runtime, no git submodules |
+| `export/` | `.apkg` Anki package generator, CSV export, Anki tunnel sync via MCP server |
+| `app.py` | Entry point — wires inputs to two-phase click handlers with progress tracking |
+
+### Data Flow
+
+```
+User Input → [Gradio UI] → EnginePool (singleton) → TextEngine/TTS/ImageGen → Card Gallery → Export (.apkg / .csv)
+```
+
+- **Inference:** `core/engine.py` defines five engine classes:
+  - `TextEngine` — llama-cli subprocess wrapper for Nemotron (stateless, spawns fresh process per call)
+  - `LlamaCppTextEngine` — llama-cpp-python wrapper for tiny-aya-water translation (lazy-load/unload, ~2 GB VRAM)
+  - `TTSEngine` — OmniVoice Python package with lazy-load/unload cycle (GPU memory managed by EnginePool)
+  - `ImageGenEngine` — diffusers Flux2KleinPipeline with lazy-load/unload cycle (GPU memory managed by EnginePool)
+  - `EnginePool` — singleton orchestrator enforcing mutual exclusion between all GPU engines
+- **Types:** `core/types.py` provides Pydantic models (`CardData`, `CEFRLevel`, `TextResult`, `AudioResult`, `ImageResult`, `EngineConfig`) for type-safe boundaries.
+- **Pipeline:** `core/pipeline.py` orchestrates batch generation — text first, then audio and images in parallel based on toggle state.
+- **Frontend:** `frontend/ui/cards.py` renders individual cards as HTML with conditional media elements; `generate_cards_html()` layouts them in a flex gallery with natural rotation offsets.
+- **Export:** `export/apkg_generator.py` builds Anki packages; `export/csv_export.py` writes tabular data; `export/anki_tunnel.py` communicates with the Anki MCP tunnel server.
+
 ## Repository Structure
 
 ```
-EuropaLex-Space/
-├── pyproject.toml          # Optional - uv export here
-│   # Or export with: uv export > requirements.txt
-├── requirements.txt        # ← REQUIRED for pip install
-├── app.py                  # ← REQUIRED entry point (or main.py)
-├── core/                   # Your shared modules
-│   ├── __init__.py         # Python package marker
-│   ├── engine.py           # InferenceEngine protocol + implementations
-│   ├── pipeline.py         # Batch generator: text → audio → image
-│   └── types.py            # Card, CardData, CEFRLevel dataclasses
-├── frontend/               # Gradio UI code inside app.py
+EuropaLex/
+├── app.py                  # Entry point — Gradio UI wiring, two-phase generation handlers
+├── pyproject.toml          # Project config (uv)
+├── requirements.txt        # pip install dependencies
+├── uv.lock                 # uv lock file
+├── .gitignore
+├── README.md               # This file
+├── AGENTS.md               # AI agent conventions guide
+├── core/                   # Shared business logic
 │   ├── __init__.py
-│   ├── css/custom.css      # Custom card styling
-│   └── ui/                 # Widget and card components
-├── models/                 # ← Use HF Hub URLs instead of submodules!
+│   ├── types.py            # Pydantic models: CardData, CEFRLevel, TextResult, AudioResult, ImageResult, EngineConfig
+│   ├── engine.py           # TextEngine (Nemotron/llama-cli), LlamaCppTextEngine (tiny-aya/llama-cpp-python), TTSEngine (OmniVoice), ImageGenEngine (diffusers), EnginePool singleton
+│   └── pipeline.py         # Batch generator: text → audio → image orchestrator
+├── frontend/               # Gradio 6 UI
 │   ├── __init__.py
-│   └── download_models.py  # Script to fetch from HF Hub at runtime
-├── configs/                # Settings, word lists
-│   └── settings.yaml
-├── export/                 # .apkg generator
+│   ├── ui/
+│   │   ├── __init__.py
+│   │   ├── widgets.py      # Styled toggle checkbox wrappers
+│   │   └── cards.py        # Card rendering, gallery layout, progress bar
+│   └── css/
+│       └── custom.css      # Plain-white theme, card styling, disabled states
+├── models/                 # Model management
 │   ├── __init__.py
-│   ├── apkg_generator.py
-│   ├── csv_export.py
-│   └── anki_tunnel.py
-└── README.md               # Documentation
+│   └── download_models.py  # HF Hub model downloader (runtime)
+├── configs/                # Configuration
+│   └── settings.yaml       # App settings, word lists
+├── export/                 # Export formats
+│   ├── __init__.py
+│   ├── apkg_generator.py   # Anki .apkg package builder
+│   ├── csv_export.py       # CSV export utility
+│   └── anki_tunnel.py      # MCP tunnel sync for live Anki import
+├── docs/                   # Design specs and implementation plans
+│   └── superpowers/
+│       ├── specs/          # Design specification documents
+│       └── plans/          # Implementation plans
+└── scripts/                # Utility scripts
+    └── smoke_test.py       # Quick sanity check script
 ```
 
 ## CEFR Levels
@@ -90,4 +182,4 @@ EuropaLex-Space/
 `[A0, A1, A2, B1, B2, C1, C2]`
 
 - **A0:** Uses curated common words list (no text generation model needed)
-- **A1–C2:** TildeOpen generates target-language text at the selected level
+- **A1–C2:** tiny-aya-water translates English text to the target language at the selected CEFR level
