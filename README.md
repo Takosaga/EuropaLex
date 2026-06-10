@@ -67,7 +67,7 @@ uv run python -m models.download_models --output-dir ./my-models
 | FLUX.2-klein 4B Q4_K_M | [unsloth/FLUX.2-klein-4B-GGUF](https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF) | `flux-2-klein-4b-Q4_K_M.gguf` | ComfyUI-GGUF / diffusers | ~2.6 GB | Image generation |
 
 > **Note:** Models use different runtimes:
-> - **llama-cli** for Nemotron (English text generation) — subprocess-based, no persistent VRAM
+> - **llama-cpp-python** for MiniCPM5-1B (English text generation) — lazy-load/unload via Python bindings (~1.1 GB RAM)
 > - **llama-cpp-python** for tiny-aya-water (translation) — lazy-load/unload via Python bindings (~2 GB VRAM)
 > - **omnivoice.cpp** for OmniVoice — text-to-speech (C++/GGML port)
 > - **ComfyUI-GGUF / diffusers** for FLUX.2 — image generation (diffusion model)
@@ -125,7 +125,7 @@ EuropaLex is organized into five main modules:
 ### Data Flow
 
 ```
-User Input → [Gradio UI] → EnginePool (singleton) → TextEngine/TTS/ImageGen → Card Gallery → Export (.apkg / .csv)
+User Input → [Gradio UI] → EnginePool (singleton) → MiniCPMTextEngine/TTS/ImageGen → Card Gallery → Export (.apkg / .csv)
 ```
 
 - **Inference:** `core/engine.py` defines five engine classes:
@@ -133,7 +133,7 @@ User Input → [Gradio UI] → EnginePool (singleton) → TextEngine/TTS/ImageGe
   - `LlamaCppTextEngine` — llama-cpp-python wrapper for tiny-aya-water translation (lazy-load/unload, ~2 GB VRAM). Used in Phase 2 for translation.
   - `TTSEngine` — OmniVoice Python package with lazy-load/unload cycle (GPU memory managed by EnginePool). Used in Phase 2 for TTS audio.
   - `ImageGenEngine` — diffusers Flux2KleinPipeline with lazy-load/unload cycle (GPU memory managed by EnginePool). Used in Phase 2 for images.
-  - `EnginePool` — singleton orchestrator enforcing mutual exclusion between all GPU engines. Phase 1 uses only `TextEngine` (no VRAM). Phase 2 loads GPU engines sequentially: translation → TTS/images.
+  - `EnginePool` — singleton orchestrator enforcing mutual exclusion between all GPU engines. Phase 1 uses only `MiniCPMTextEngine` (~1.1 GB RAM). Phase 2 loads GPU engines sequentially: translation → TTS/images.
 - **Types:** `core/types.py` provides Pydantic models (`CardData`, `CEFRLevel`, `TextResult`, `AudioResult`, `ImageResult`, `EngineConfig`) for type-safe boundaries.
 - **Pipeline:** `core/pipeline.py` orchestrates batch generation — text first, then audio and images in parallel based on toggle state.
 - **Frontend:** `frontend/ui/cards.py` renders individual cards as HTML with conditional media elements; `generate_cards_html()` layouts them in a flex gallery with natural rotation offsets.
