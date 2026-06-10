@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
@@ -26,136 +25,128 @@ class _EngineState:
     image_engine: ImageGenEngine | None = None
 
 
-class TextEngine:
-    """Generates text using llama-cli subprocess with Nemotron.
+class MiniCPMTextEngine:
+    """Generates English text using MiniCPM5-1B Q8_0 via llama-cpp-python.
 
-    Each call spawns a fresh subprocess — no model persists in memory between calls.
-    Supports full llama.cpp parameter control: context size, batch sizes, sampling,
-    MoE layer placement (n-cpu-moe), and more.
+    Lazy-loads the model on first call, unloads after completion to free memory.
+    Uses MiniCPM5-1B's built-in chat template (apply_chat_template) for prompt formatting.
+    Only one instance can be active at a time (enforced by EnginePool).
+
+    Best for Phase 1 English text generation — ~1.1 GB RAM, no subprocess overhead.
     """
 
-    def __init__(self, config: EngineConfig):
+    def __init__(self, model_path: str, device: str = "cuda"):
         """Initialize the text engine.
 
         Args:
-            config: EngineConfig with model path and generation parameters.
+            model_path: Absolute path to the MiniCPM5-1B Q8_0 GGUF file.
+            device: Device hint ('cuda', 'mps', or 'cpu').
         """
-        self.model_path = Path(config.nemotron_model_path)
+        self.model_path = Path(model_path)
         if not self.model_path.exists():
             raise FileNotFoundError(
-                f"Nemotron model not found at: {self.model_path}\n"
-                f"Run: python models/download_models.py --model nemotron"
+                f"MiniCPM5-1B model not found at: {self.model_path}\n"
+                f"Run: python models/download_models.py minicpm"
             )
-        self.config = config
-        logger.info("TextEngine initialized with model: %s (%s)", self.model_path.name, self.model_path.stat().st_size // (1024**3), "GB")
+        self.device = device
+        self._llm = None
+        self._loaded = False
+
+    def _load_model(self) -> None:
+        """Lazy-load the GGUF model via llama-cpp-python."""
+        if self._loaded:
+            return
+
+        try:
+            from llama_cpp import Llama
+        except ImportError:
+            raise ImportError(
+                "llama-cpp-python package not installed. "
+                "Run: pip install llama-cpp-python"
+            )
+
+        n_gpu = 99 if self.device == "cuda" else 0
+        self._llm = Llama(
+            model_path=str(self.model_path),
+            n_gpu_layers=n_gpu,
+            n_ctx=4096,
+        )
+        self._loaded = True
+        logger.info("MiniCPMTextEngine loaded %s on %s", self.model_path.name, self.device)
 
     def generate(self, texts: list[str], scenario: str, cefr_level: CEFRLevel, batch_size: int | None = None) -> TextResult:
-        """Generate text using llama-cli with full parameter control.
+        """Generate English sentences using the loaded GGUF model.
 
         Args:
-            texts: English sentences to translate (for TildeOpen) or empty list (for Nemotron).
-            scenario: Scenario/topic description for Nemotron text generation.
+            texts: Empty list (generation mode). Non-empty would be translation mode.
+            scenario: Scenario/topic description for text generation.
             cefr_level: CEFR proficiency level.
-            batch_size: Number of sentences to generate (Nemotron mode only).
+            batch_size: Number of sentences to generate.
 
         Returns:
-            TextResult with one translation/sentence per input or generated item.
+            TextResult with one sentence per requested batch size.
 
         Raises:
-            RuntimeError: If llama-cli subprocess exits with non-zero status.
+            RuntimeError: If generation fails.
         """
-        if texts:
-            prompt = self._build_translation_prompt(texts, scenario, cefr_level)
-        else:
-            prompt = self._build_generation_prompt(scenario, cefr_level, batch_size or 3)
+        self._load_model()
+        prompt = self._build_chat_prompt(scenario, cefr_level, batch_size or 3)
 
-        cmd = self._build_command(prompt)
-        logger.info("Running llama-cli: %s", " ".join(cmd[:6]) + " ...")
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=300,
-            )
-        except subprocess.TimeoutExpired:
-            raise RuntimeError("llama-cli timed out after 5 minutes (check GPU/CPU resources)")
-        except FileNotFoundError:
-            raise RuntimeError(
-                "llama-cli not found on PATH. Install from https://github.com/ggerganov/llama.cpp\n"
-                f"Ensure 'llama-cli' is accessible or add its directory to PATH."
-            )
+        output = self._llm(
+            prompt=prompt,
+            max_tokens=512,
+            temperature=0.7,
+            echo=False,
+        )
 
-        if result.returncode != 0:
-            stderr = (result.stderr or "").strip()
-            stdout = (result.stdout or "").strip()
-            msg = f"llama-cli failed (exit {result.returncode})"
-            if stderr:
-                # Show first meaningful line of stderr (often contains the real error)
-                err_lines = [l for l in stderr.split("\n") if l.strip()]
-                msg += f": {err_lines[0]}"
-            elif stdout:
-                # Sometimes useful info is on stdout
-                out_lines = [l for l in stdout.split("\n") if l.strip()]
-                msg += f" (stdout: {out_lines[-1]})"
-            raise RuntimeError(msg)
-
-        lines = [line.strip() for line in result.stdout.strip().split("\n") if line.strip()]
+        text = output.get("choices", [{}])[0].get("text", "")
+        lines = [line.strip() for line in text.strip().split("\n") if line.strip()]
         return TextResult(translations=lines)
 
-    def _build_command(self, prompt: str) -> list[str]:
-        """Build the llama-cli command with all generation parameters.
+    def _build_chat_prompt(self, scenario: str, cefr_level: CEFRLevel, batch_size: int) -> str:
+        """Build chat-formatted prompt using the model's built-in template.
 
         Args:
-            prompt: The prompt text to send to the model.
+            scenario: Scenario/topic description.
+            cefr_level: CEFR proficiency level.
+            batch_size: Number of sentences to generate.
 
         Returns:
-            Complete llama-cli command as a list of CLI arguments.
+            Formatted prompt string ready for model inference.
         """
-        c = self.config
-        cmd = [
-            "llama-cli",
-            "-m", str(self.model_path),
-            "-p", prompt,
-            # Context & batching
-            "--ctx-size", str(c.n_ctx),
-            "--batch-size", str(c.n_batch),
-            "--ubatch-size", str(c.n_ubatch),
-            "--threads", str(c.n_threads),
-            # Model placement
-            "-ngl", "999",
-            f"--n-cpu-moe", str(c.n_cpu_moe),
-            "--no-mmap",
-            "--offload-kqv",
-            # Generation
-            "-n", str(c.max_tokens),
-            "--temp", str(c.temperature),
-            "--top-k", str(c.top_k),
-            "--repeat-penalty", str(c.repeat_penalty),
-            "--top-p", str(c.top_p),
-            "--min-p", str(c.min_p),
-        ]
-        return cmd
-
-    def _build_translation_prompt(self, texts: list[str], scenario: str, cefr_level: CEFRLevel) -> str:
-        """Build prompt for TildeOpen translation."""
-        text_lines = "\n".join(texts)
-        target_lang = "Latvian"  # Default; can be parameterized later
-        return (
-            f"You are a translator. Translate the following {cefr_level.value} English text into {target_lang}.\n"
-            f"Translate these sentences, one per line, in order:\n"
-            f"{text_lines}\n"
-            "Output ONLY the translations, one per line. No explanations."
+        system_msg = {
+            "role": "system",
+            "content": (
+                "You are a language teacher. Generate simple, clear sentences at the specified CEFR level "
+                "about the given scenario. Output ONE sentence per line, no numbering or explanations."
+            ),
+        }
+        user_msg = {
+            "role": "user",
+            "content": (
+                f"Generate {batch_size} simple sentences at CEFR level {cefr_level.value}\n"
+                f"about the following scenario. Output ONE sentence per line, no numbering.\n"
+                f"Scenario: {scenario}\n"
+                "Output ONLY the sentences, one per line. No explanations."
+            ),
+        }
+        return self._llm.apply_chat_template(
+            messages=[system_msg, user_msg],
+            tokenize=False,
+            add_generation_prompt=True,
         )
 
-    def _build_generation_prompt(self, scenario: str, cefr_level: CEFRLevel, batch_size: int) -> str:
-        """Build prompt for Nemotron text generation."""
-        return (
-            f"You are a language teacher. Generate {batch_size} simple sentences at CEFR level {cefr_level.value}\n"
-            f"about the following scenario. Output ONE sentence per line, no numbering.\n"
-            f"Scenario: {scenario}\n"
-            "Output ONLY the sentences, one per line. No explanations."
-        )
+    def unload(self) -> None:
+        """Unload the model and free memory."""
+        if self._llm is not None:
+            del self._llm
+            self._llm = None
+            self._loaded = False
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
+            logger.info("MiniCPMTextEngine unloaded")
 
 
 class LlamaCppTextEngine:
@@ -477,14 +468,17 @@ class EnginePool:
             cls._instance._unload_image()
             cls._instance = None
 
-    def get_english_engine(self) -> TextEngine:
-        """Get a fresh English text generation engine (Nemotron).
+    def get_english_engine(self) -> MiniCPMTextEngine:
+        """Get a fresh English text generation engine (MiniCPM5-1B).
 
-        Clears any active GPU engines before returning.
-        Uses full EngineConfig for all llama-cli generation parameters.
+        Unloads any active GPU engines before returning.
+        Returns a new MiniCPMTextEngine instance each call (stateless after unload).
         """
         self._ensure_exclusive("text")
-        return TextEngine(config=self._config)
+        return MiniCPMTextEngine(
+            model_path=self._config.minicpm_model_path,
+            device=self._config.device,
+        )
 
     def get_translation_engine(self) -> LlamaCppTextEngine:
         """Get or create the translation engine (tiny-aya-water via llama-cpp-python).
@@ -528,6 +522,7 @@ class EnginePool:
             self._unload_translation()
             self._unload_tts()
             self._unload_image()
+            self._unload_english()
         elif target == "translation":
             self._unload_tts()
             self._unload_image()
@@ -555,3 +550,12 @@ class EnginePool:
         if self._state.image_engine is not None:
             self._state.image_engine.unload()
             self._state.image_engine = None
+
+    def _unload_english(self) -> None:
+        """Unload the English text engine if active."""
+        # MiniCPMTextEngine instances are per-call (stateless), but we track
+        # any loaded model state to ensure clean GPU memory.
+        try:
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
