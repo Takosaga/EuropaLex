@@ -83,7 +83,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 ### Data Flow Through the App
 
 ```
-User input → app.py click handler → EnginePool.get(config) → TextEngine/TTSEngine/ImageGenEngine → frontend/ui/cards.py rendering → Gradio output
+User input → app.py click handler → EnginePool.get(config) → TextEngine (Nemotron, Phase 1) → LlamaCppTextEngine (translation, Phase 2) → TTSEngine/ImageGenEngine (media, Phase 2) → frontend/ui/cards.py rendering → Gradio output
 ```
 
 When adding a new feature, follow this chain. Don't bypass `pipeline.py` — even single-card generation should go through it for consistency.
@@ -123,16 +123,16 @@ All card HTML goes through `frontend/ui/cards.py`:
 
 The UI operates in two distinct phases:
 
-**Phase 1 — Generate Text:**
+**Phase 1 — Generate English Text:**
 1. User clicks "Generate Text"
-2. `app.py` calls the text generation handler → Nemotron generates English sentences, then tiny-aya-water translates them
+2. `app.py` calls the text generation handler → Nemotron (`TextEngine`, llama-cli subprocess) generates English sentences from the scenario
 3. Cards render with English on the front, placeholder back (dashed line)
 4. After completion, `_enable_phase2()` removes disabled CSS and enables toggles + "Generate Cards" button
 
-**Phase 2 — Generate Media:**
+**Phase 2 — Generate Translation + Media (deferred):**
 1. User toggles Images/Audio on/off
 2. User clicks "Generate Cards"
-3. `app.py` calls the media generation handler → OmniVoice (TTS) + FLUX.2 (images) fill in media
+3. `app.py` calls the media generation handler → tiny-aya-water (`LlamaCppTextEngine`) translates, then OmniVoice (TTS) + FLUX.2 (images) fill in media
 4. Cards update: translation appears on the front, image and audio controls appear with it; English text moves to the back
 5. Both buttons hide during generation, reappear when done
 
@@ -179,11 +179,11 @@ Five concrete engine classes replace the legacy `InferenceEngine` protocol:
 
 | Class | Backend | Lifecycle |
 |---|---|---|
-| `TextEngine` | llama-cli subprocess | Stateless — spawns fresh process per `.generate()` call |
-| `LlamaCppTextEngine` | llama-cpp-python (GGUF) | Lazy-load on first `.generate()`, unload after completion (~2 GB VRAM) |
-| `TTSEngine` | omnivoice (PyTorch) | Lazy-load on first `.synthesize()`, unload after completion |
-| `ImageGenEngine` | diffusers Flux2KleinPipeline (PyTorch) | Lazy-load on first `.generate()`, unload after completion |
-| `EnginePool` | Singleton factory | Manages mutual exclusion between all GPU engines |
+| `TextEngine` | llama-cli subprocess | Stateless — spawns fresh process per `.generate()` call. Used in Phase 1 for English text generation only. |
+| `LlamaCppTextEngine` | llama-cpp-python (GGUF) | Lazy-load on first `.generate()`, unload after completion (~2 GB VRAM). Used in Phase 2 for translation. |
+| `TTSEngine` | omnivoice (PyTorch) | Lazy-load on first `.synthesize()`, unload after completion. Used in Phase 2 for TTS audio. |
+| `ImageGenEngine` | diffusers Flux2KleinPipeline (PyTorch) | Lazy-load on first `.generate()`, unload after completion. Used in Phase 2 for images. |
+| `EnginePool` | Singleton factory | Manages mutual exclusion between all GPU engines. Phase 1 uses only `TextEngine` (no VRAM). Phase 2 loads GPU engines sequentially: translation → TTS/images. |
 
 **Rules:**
 - All inference goes through `EnginePool.get(config)` — never instantiate engines directly in app code.
