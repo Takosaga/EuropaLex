@@ -162,13 +162,124 @@ class LlamaCppTextEngine:
         self._loaded = True
         logger.info("LlamaCppTextEngine loaded %s on %s", self.model_path.name, self.device)
 
-    def generate(self, texts: list[str], scenario: str, cefr_level: CEFRLevel, batch_size: int | None = None) -> TextResult:
-        """Generate translations using the loaded GGUF model with retry loop.
+    def _translate_single(self, text: str, cefr_level: CEFRLevel) -> str:
+        """Translate a single English sentence into Latvian with retry loop.
 
-        Wraps the LLM call in a retry loop (max 3 attempts). If output line count
-        does not match ``batch_size``, builds a stricter prompt referencing the
-        actual vs expected count and retries. On exhaustion, falls back to returning
-        whatever lines were produced on the last attempt.
+        Uses ``create_chat_completion`` so the model's chat template (with
+        special tokens like ``<|USER_TOKEN|>``) is applied correctly. Raw
+        prompt strings bypass the chat template and produce poor output.
+
+        Wraps the LLM call in a retry loop (max 3 attempts). Returns the
+        translated string or falls back to the original English text on failure.
+
+        Args:
+            text: Single English sentence to translate.
+            cefr_level: CEFR proficiency level.
+
+        Returns:
+            Translated Latvian string, or the original English text as fallback.
+        """
+        self._load_model()
+        base_messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a professional translator. Translate English sentences into "
+                    "Latvian at the specified CEFR level. Output ONLY the translation, "
+                    "one line. No explanations, no notes, no source text repetition."
+                ),
+            }
+        ]
+        last_messages: list = []
+
+        for attempt in range(1, 4):
+            messages = list(base_messages)
+            if attempt > 1 and last_messages:
+                # Append failed output + retry instruction in conversation context
+                messages.extend(last_messages)
+
+            messages.append({
+                "role": "user",
+                "content": self._build_single_translation_prompt(text, cefr_level),
+            })
+
+            output = self._llm.create_chat_completion(
+                messages=messages,
+                max_tokens=128,
+                temperature=0.3,
+            )
+
+            raw_text = output.get("choices", [{}])[0].get("message", {}).get("content", "")
+            last_messages = [
+                {"role": "assistant", "content": raw_text},
+            ]
+            line = raw_text.strip()
+
+            # Validate: must be a single non-empty line, not repetitive garbage
+            if line and self._is_valid_translation(line):
+                logger.info(
+                    "LlamaCppTextEngine: translated '%s' on attempt %d -> '%s'",
+                    text[:30], attempt, line[:40],
+                )
+                return line
+
+            # Invalid output — retry with stricter prompt in context
+            if attempt < 3:
+                last_messages.append({
+                    "role": "user",
+                    "content": (
+                        f"That output was invalid. Translate ONLY this sentence into Latvian:\n"
+                        f"{text}\n\n"
+                        f"Output ONE line only — the translation. Nothing else."
+                    ),
+                })
+                logger.warning(
+                    "LlamaCppTextEngine attempt %d: invalid output for '%s' — retrying",
+                    attempt, text[:30],
+                )
+            else:
+                logger.warning(
+                    "LlamaCppTextEngine: exhausted retries for '%s'. Falling back to English.",
+                    text[:30],
+                )
+
+        # Exhausted retries — fall back to original English text
+        logger.info("LlamaCppTextEngine: fallback to English for '%s'", text[:30])
+        return text
+
+    def _is_valid_translation(self, line: str) -> bool:
+        """Check if a translation output is valid (single line, not repetitive garbage).
+
+        Args:
+            line: The raw model output to validate.
+
+        Returns:
+            True if the output looks like a reasonable translation.
+        """
+        if not line or len(line) < 2:
+            return False
+
+        # Reject if it contains multiple lines (model generated too much)
+        if "\n" in line:
+            return False
+
+        # Reject if it's just the English text back (no translation happened)
+        lower = line.lower()
+        if any(word in lower for word in ["translate", "translation", "english"]):
+            return False
+
+        # Reject very short outputs that are likely noise
+        words = line.split()
+        if len(words) < 1:
+            return False
+
+        return True
+
+    def generate(self, texts: list[str], scenario: str, cefr_level: CEFRLevel, batch_size: int | None = None) -> TextResult:
+        """Generate translations using the loaded GGUF model.
+
+        Translates each sentence individually for better quality with small models.
+        Falls back to English text on failure (after max retries).
 
         Args:
             texts: English sentences to translate.
@@ -186,80 +297,30 @@ class LlamaCppTextEngine:
         if batch_size is None:
             raise ValueError("batch_size is required for translation")
 
-        prompt = self._build_translation_prompt(texts, cefr_level)
-        last_raw_text = ""
+        translations = []
+        for text in texts:
+            translated = self._translate_single(text, cefr_level)
+            translations.append(translated)
 
-        for attempt in range(1, 4):
-            output = self._llm(
-                prompt=prompt,
-                max_tokens=512,
-                temperature=0.7,
-                echo=False,
-            )
+        return TextResult(generated_texts=translations)
 
-            raw_text = output.get("choices", [{}])[0].get("text", "")
-            last_raw_text = raw_text
-            lines = [line.strip() for line in raw_text.strip().split("\n") if line.strip()]
+    def _build_single_translation_prompt(self, text: str, cefr_level: CEFRLevel) -> str:
+        """Build prompt for translating a single sentence.
 
-            if len(lines) == batch_size:
-                logger.info(
-                    "LlamaCppTextEngine: got %d translations on attempt %d (target=%d)",
-                    len(lines), attempt, batch_size,
-                )
-                return TextResult(generated_texts=lines)
-
-            # Count mismatch — retry with stricter prompt
-            if attempt < 3:
-                prompt = self._build_retry_prompt(raw_text, batch_size)
-                logger.warning(
-                    "LlamaCppTextEngine attempt %d: got %d translations, need %d — retrying",
-                    attempt, len(lines), batch_size,
-                )
-            else:
-                logger.warning(
-                    "LlamaCppTextEngine: exhausted all attempts. Got %d translations.",
-                    len(lines),
-                )
-
-        # Exhausted retries — return whatever we got (or empty)
-        if not lines:
-            raise ValidationError(
-                f"Could not generate any translations after 3 attempts.",
-                raw_output=last_raw_text,
-            )
-        return TextResult(generated_texts=lines)
-
-    def _build_translation_prompt(self, texts: list[str], cefr_level: CEFRLevel) -> str:
-        """Build prompt for translation."""
-        text_lines = "\n".join(texts)
-        target_lang = "Latvian"  # Default; can be parameterized later
-        return (
-            f"You are a translator. Translate the following {cefr_level.value} English text into {target_lang}.\n"
-            f"Translate these sentences, one per line, in order:\n"
-            f"{text_lines}\n"
-            "Output ONLY the translations, one per line. No explanations."
-        )
-
-    def _build_retry_prompt(self, raw_output: str, expected_count: int) -> str:
-        """Build a stricter prompt for retry when translation count mismatches.
-
-        Appends a correction instruction to the existing context so the model
-        builds on its previous output rather than starting fresh.
-
-        Args:
-            raw_output: The LLM's previous (incorrect-count) output.
-            expected_count: The number of translations that should have been produced.
-
-        Returns:
-            Prompt string with correction instruction appended.
+        Optimized for small models (tiny-aya-water ~3.3B params): short,
+        explicit, with strong constraints against repetition and hallucination.
         """
-        actual_count = len([line for line in raw_output.strip().split("\n") if line.strip()])
+        target_lang = "Latvian"
         return (
-            f"Previous output had the wrong number of lines.\n"
-            f"You produced {actual_count} translations but need exactly {expected_count}.\n"
-            f"Your previous attempt:\n{raw_output}\n\n"
-            f"Now regenerate ALL {expected_count} translations, one per line, in order.\n"
-            f"Output ONLY the translations, one per line. No explanations."
+            f"Translate the following English sentence into {target_lang}.\n"
+            f"CEFR level: {cefr_level.value}.\n\n"
+            f"Rules:\n"
+            f"1. Output ONLY the translated sentence — one line, nothing else.\n"
+            f"2. Do NOT include explanations, notes, or labels.\n"
+            f"3. Do NOT repeat the English text in your output.\n"
+            f"4. Use simple, natural {target_lang} for {cefr_level.value} learners.\n\n"
+            f"English: {text}\n"
+            f"{target_lang}:"
         )
 
     def unload(self) -> None:
