@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 def test_extract_sentences_basic():
     """Test basic numbered format extraction."""
     from core.text_gen import extract_sentences
-    result = extract_sentences("1. Hello world.\n2. Goodbye world.", 2)
+    result = extract_sentences("1. Hello world.\n2. Goodbye world.")
     assert len(result) == 2
     assert result[0] == "Hello world."
     assert result[1] == "Goodbye world."
@@ -24,7 +24,7 @@ def test_extract_sentences_thinking_tags():
     """Test thinking tag stripping."""
     from core.text_gen import extract_sentences
     raw = "<thinking>some thoughts</thinking>\n1. Sentence one.\n2. Sentence two."
-    result = extract_sentences(raw, 2)
+    result = extract_sentences(raw)
     assert len(result) == 2
     assert result[0] == "Sentence one."
     print("test_extract_sentences_thinking_tags: PASS")
@@ -34,31 +34,31 @@ def test_extract_sentences_questions_exclamations():
     """Test mixed punctuation handling."""
     from core.text_gen import extract_sentences
     raw = "1. Hello.\n2. How are you?\n3. What a day!"
-    result = extract_sentences(raw, 3)
+    result = extract_sentences(raw)
     assert len(result) == 3
     assert result[1] == "How are you?"
     assert result[2] == "What a day!"
     print("test_extract_sentences_questions_exclamations: PASS")
 
 
-def test_extract_sentences_too_few_raises():
-    """Test ValidationError on insufficient sentences."""
+def test_extract_sentences_zero_raises():
+    """Test ValidationError when no numbered sentences found."""
     from core.text_gen import extract_sentences, ValidationError
     try:
-        extract_sentences("1. Only one.", 3)
+        extract_sentences("No numbered lines here.")
         assert False, "Should raise"
     except ValidationError:
         pass
-    print("test_extract_sentences_too_few_raises: PASS")
+    print("test_extract_sentences_zero_raises: PASS")
 
 
-def test_extract_sentences_too_many_truncates():
-    """Test truncation when more sentences than expected."""
+def test_extract_sentences_all_returned():
+    """Test that all numbered sentences are returned (no truncation)."""
     from core.text_gen import extract_sentences
-    result = extract_sentences("1. A.\n2. B.\n3. C.", 2)
-    assert len(result) == 2
-    assert result == ["A.", "B."]
-    print("test_extract_sentences_too_many_truncates: PASS")
+    result = extract_sentences("1. A.\n2. B.\n3. C.")
+    assert len(result) == 3
+    assert result == ["A.", "B.", "C."]
+    print("test_extract_sentences_all_returned: PASS")
 
 
 def test_generate_sentences_mock():
@@ -87,7 +87,7 @@ if __name__ == "__main__":
     test_extract_sentences_basic()
     test_extract_sentences_thinking_tags()
     test_extract_sentences_questions_exclamations()
-    test_extract_sentences_too_few_raises()
-    test_extract_sentences_too_many_truncates()
+    test_extract_sentences_zero_raises()
+    test_extract_sentences_all_returned()
     test_generate_sentences_mock()
     print("\nAll inline tests passed.")
