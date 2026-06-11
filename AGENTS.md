@@ -179,7 +179,7 @@ Five concrete engine classes replace the legacy `InferenceEngine` protocol:
 
 | Class | Backend | Lifecycle |
 |---|---|---|
-| `MiniCPMTextEngine` | llama-cpp-python (GGUF) | Lazy-load on first `.generate()`, unload after completion (~1.1 GB RAM). Uses `apply_chat_template`. Used in Phase 1 for English text generation. |
+| `MiniCPMTextEngine` | llama-cpp-python (GGUF) | Lazy-load on first `.generate()`, unload after completion (~1.1 GB RAM). Uses `apply_chat_template`. Validates output sentence count against `batch_size`; retries with stricter prompts on mismatch (max 3 attempts). Used in Phase 1 for English text generation. |
 | `LlamaCppTextEngine` | llama-cpp-python (GGUF) | Lazy-load on first `.generate()`, unload after completion (~2 GB VRAM). Used in Phase 2 for translation. |
 | `TTSEngine` | omnivoice (PyTorch) | Lazy-load on first `.synthesize()`, unload after completion. Used in Phase 2 for TTS audio. |
 | `ImageGenEngine` | diffusers Flux2KleinPipeline (PyTorch) | Lazy-load on first `.generate()`, unload after completion. Used in Phase 2 for images. |
@@ -189,6 +189,8 @@ Five concrete engine classes replace the legacy `InferenceEngine` protocol:
 - All inference goes through `EnginePool.get(config)` — never instantiate engines directly in app code.
 - All engines (MiniCPMTextEngine, LlamaCppTextEngine, TTSEngine, ImageGenEngine) are lazy-loaded and unloaded via `del` + `torch.cuda.empty_cache()`.
 - Each engine class should be self-contained. Don't share state between implementations.
+
+**MiniCPMTextEngine validation:** `generate()` wraps the LLM call in a retry loop (max 3 attempts). After each attempt, `_validate_lines()` checks that output line count matches `batch_size`. On mismatch, `_build_retry_prompt()` constructs a stricter prompt referencing the actual vs expected count, appended as a new user message in the same conversation context. On exhaustion, raises `RuntimeError` with last raw output for debugging. Do not bypass this loop — it is the contract enforcement layer between LLM output and `TextResult`.
 
 ### pipeline.py
 
@@ -214,9 +216,13 @@ The frontend can render cards from mock data (no model inference needed). When t
 - Use `frontend/ui/cards.py:render_card_html()` directly with a dict like `{"text": "Hello", "translation": "Sveiki"}`
 - The card renderer handles missing fields gracefully — `translation` defaults to empty string, `audio_path`/`image_path` are ignored in HTML rendering.
 
+### Inline Tests
+
+For new modules with non-trivial logic, add a test script in `scripts/` guarded by `if __name__ == "__main__":`. See `scripts/test_count_enforcement.py` as an example — it tests helper method logic without requiring model inference.
+
 ### No Unit Test Framework Required (Yet)
 
-The project currently uses smoke tests only. If you add a new module with non-trivial logic (>30 lines of business logic), consider adding inline assertions or a simple test function at the bottom of the file guarded by `if __name__ == "__main__":`.
+The project currently uses smoke tests and inline tests. If you add a new module with non-trivial logic (>30 lines of business logic), consider adding inline assertions or a simple test function at the bottom of the file guarded by `if __name__ == "__main__":`.
 
 ## Adding New Features
 
@@ -289,3 +295,7 @@ Gradio's default styles use `!important` heavily. Our `custom.css` also uses `!i
 ### 5. Model paths are runtime-resolved
 
 Models live in a configurable directory (default: `.local/models/`, see `configs/settings.yaml`). Never hard-code model file paths. Always resolve paths via the settings config or `models/download_models.py`. Each model has its own runtime engine — don't assume llama-cli can run all GGUF files.
+
+### 6. LLM output may not match expected count
+
+`MiniCPMTextEngine.generate()` validates sentence count against `batch_size` and retries automatically (max 3 attempts). Do **not** slice output with `[:batch_size]` as a band-aid — the engine already handles this via `_validate_lines()` + retry loop. If you bypass the engine and call the LLM directly, you must implement the same validation logic.
