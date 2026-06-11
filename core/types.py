@@ -212,6 +212,7 @@ class EngineConfig(BaseModel):
     minicpm_model_path: str  # Path to MiniCPM5-1B Q8_0 GGUF file
     device: str = "cuda"  # "cuda", "mps", or "cpu"
     batch_size: int = 3
+    target_language: str = "Latvian"  # Target language for Phase 2 translation
 
     # llama-cli generation parameters (Nemotron / TextEngine)
     n_ctx: int = 4096  # Context length in tokens
@@ -267,6 +268,7 @@ class EngineConfig(BaseModel):
             minicpm_model_path=str(Path(models.get("directory", ".local/models")) / "minicpm" / models["minicpm"]["file"]),
             device=device,
             batch_size=batch.get("default_size", 3),
+            target_language=raw.get("target_language", "Latvian"),
             n_ctx=gen.get("n_ctx", 4096),
             n_threads=gen.get("n_threads", 5),
             n_batch=gen.get("n_batch", 4096),

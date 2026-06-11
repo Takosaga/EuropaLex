@@ -134,17 +134,24 @@ class LlamaCppTextEngine:
     keeping the model in Python memory is efficient and avoids subprocess overhead.
     """
 
-    def __init__(self, model_path: str, device: str = "cuda"):
+    def __init__(
+        self,
+        model_path: str,
+        device: str = "cuda",
+        target_language: str = "Latvian",
+    ):
         """Initialize the translation engine.
 
         Args:
             model_path: Absolute path to the GGUF model file.
             device: Device hint (informational; n_gpu_layers=99 used for CUDA).
+            target_language: Target language for translations (e.g. "Latvian").
         """
         self.model_path = Path(model_path)
         if not self.model_path.exists():
             raise FileNotFoundError(f"Model not found: {self.model_path}")
         self.device = device
+        self.target_language = target_language
         self._llm = None
         self._loaded = False
 
@@ -170,8 +177,14 @@ class LlamaCppTextEngine:
         self._loaded = True
         logger.info("LlamaCppTextEngine loaded %s on %s", self.model_path.name, self.device)
 
-    def _translate_single(self, text: str, cefr_level: CEFRLevel, topic_description: str = "") -> str:
-        """Translate a single English sentence into Latvian with retry loop.
+    def _translate_single(
+        self,
+        text: str,
+        cefr_level: CEFRLevel,
+        topic_description: str = "",
+        target_language: str | None = None,
+    ) -> str:
+        """Translate a single English sentence with retry loop.
 
         Uses ``create_chat_completion`` so the model's chat template (with
         special tokens like ``<|USER_TOKEN|>``) is applied correctly. Raw
@@ -184,18 +197,21 @@ class LlamaCppTextEngine:
             text: Single English sentence to translate.
             cefr_level: CEFR proficiency level (linguistic guidance only).
             topic_description: Free-form description of topics/themes (for context).
+            target_language: Override target language for this call only.
+                Defaults to ``self.target_language`` from config.
 
         Returns:
-            Translated Latvian string, or the original English text as fallback.
+            Translated string, or the original English text as fallback.
         """
         self._load_model()
+        effective_lang = target_language or self.target_language
         base_messages = [
             {
                 "role": "system",
                 "content": (
-                    "You are a professional translator. Translate English sentences into "
-                    "Latvian at the specified CEFR level. Output ONLY the translation, "
-                    "one line. No explanations, no notes, no source text repetition."
+                    f"You are a professional translator. Translate English sentences into "
+                    f"{effective_lang} at the specified CEFR level. Output ONLY the translation, "
+                    f"one line. No explanations, no notes, no source text repetition."
                 ),
             }
         ]
@@ -209,7 +225,9 @@ class LlamaCppTextEngine:
 
             messages.append({
                 "role": "user",
-                "content": self._build_single_translation_prompt(text, cefr_level),
+                "content": self._build_single_translation_prompt(
+                    text, cefr_level, topic_description
+                ),
             })
 
             output = self._llm.create_chat_completion(
@@ -237,7 +255,7 @@ class LlamaCppTextEngine:
                 last_messages.append({
                     "role": "user",
                     "content": (
-                        f"That output was invalid. Translate ONLY this sentence into Latvian:\n"
+                        f"That output was invalid. Translate ONLY this sentence into {effective_lang}:\n"
                         f"{text}\n\n"
                         f"Output ONE line only — the translation. Nothing else."
                     ),
@@ -324,19 +342,27 @@ class LlamaCppTextEngine:
     def _build_single_translation_prompt(self, text: str, cefr_level: CEFRLevel, topic_description: str = "") -> str:
         """Build prompt for translating a single sentence.
 
-        Optimized for small models (tiny-aya-water ~3.3B params): short,
-        explicit, with strong constraints against repetition and hallucination.
+        Optimized for small models (tiny-aya-water ~3.3B params). Produces
+        natural, idiomatic output by emphasizing how native speakers actually
+        phrase things — not literal word-for-word translation.
+
         Uses CEFR linguistic guidance only — no hardcoded topics.
         """
-        target_lang = "Latvian"
+        target_lang = self.target_language
         cefr_desc = cefr_level.description()
         topic_hint = f" Context: {topic_description}." if topic_description else ""
         return (
             f"Translate the following English sentence into {target_lang}.{topic_hint}\n"
             f"CEFR linguistic guidance: {cefr_desc}.\n\n"
+            f"CRITICAL — NATURAL LANGUAGE RULES:\n"
+            f"1. Produce how a native speaker at this CEFR level would naturally express this idea in {target_lang}.\n"
+            f"2. Do NOT translate word-for-word. Capture the meaning and rephrase it naturally in {target_lang}.\n"
+            f"3. Use common idiomatic expressions, colloquial phrasing, and everyday vocabulary appropriate for the level.\n"
+            f"4. Follow the grammar patterns typical of {target_lang} — not English sentence structure.\n"
+            f"5. If the English uses an awkward or literal construction, render it as a native speaker would say it.\n\n"
             f"Rules:\n"
             f"1. Output ONLY the translated sentence — one line, nothing else.\n"
-            f"2. Do NOT include explanations, notes, or labels.\n"
+            f"2. Do NOT include explanations, notes, labels, or quotation marks.\n"
             f"3. Do NOT repeat the English text in your output.\n"
             f"4. Match the CEFR linguistic complexity for the target level.\n\n"
             f"English: {text}\n"
@@ -598,6 +624,7 @@ class EnginePool:
             self._state.translation_engine = LlamaCppTextEngine(
                 model_path=self._config.llm_model_path,
                 device=self._config.device,
+                target_language=self._config.target_language,
             )
         return self._state.translation_engine
 
