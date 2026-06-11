@@ -77,6 +77,10 @@ class MiniCPMTextEngine:
     def generate(self, texts: list[str], scenario: str, cefr_level: CEFRLevel, batch_size: int | None = None) -> TextResult:
         """Generate English sentences using the loaded GGUF model.
 
+        Validates that output contains exactly batch_size sentences. Retries with a
+        stricter prompt on mismatch (max 3 total attempts). Raises RuntimeError if
+        all attempts fail.
+
         Args:
             texts: Empty list (generation mode). Non-empty would be translation mode.
             scenario: Scenario/topic description for text generation.
@@ -84,12 +88,15 @@ class MiniCPMTextEngine:
             batch_size: Number of sentences to generate.
 
         Returns:
-            TextResult with one sentence per requested batch size.
+            TextResult with exactly one sentence per requested batch size.
 
         Raises:
-            RuntimeError: If generation fails.
+            RuntimeError: If generation fails after max attempts.
         """
         self._load_model()
+        if batch_size is None:
+            raise ValueError("batch_size is required for text generation")
+
         messages = [
             {
                 "role": "system",
@@ -109,15 +116,42 @@ class MiniCPMTextEngine:
             },
         ]
 
-        output = self._llm.create_chat_completion(
-            messages=messages,
-            max_tokens=512,
-            temperature=0.7,
-        )
+        max_attempts = 3
+        last_raw_output = ""
 
-        text = output["choices"][0]["message"]["content"]
-        lines = [line.strip() for line in text.strip().split("\n") if line.strip()]
-        return TextResult(translations=lines)
+        for attempt in range(1, max_attempts + 1):
+            output = self._llm.create_chat_completion(
+                messages=messages,
+                max_tokens=512,
+                temperature=0.7,
+            )
+
+            raw_text = output["choices"][0]["message"]["content"]
+            last_raw_output = raw_text
+            lines = [line.strip() for line in raw_text.strip().split("\n") if line.strip()]
+
+            if self._validate_lines(lines, batch_size):
+                logger.debug(
+                    "MiniCPMTextEngine: got %d/%d sentences on attempt %d",
+                    len(lines), batch_size, attempt,
+                )
+                return TextResult(translations=lines)
+
+            # Mismatch — build retry prompt and append as new user message
+            messages.append({
+                "role": "user",
+                "content": self._build_retry_prompt(len(lines), batch_size),
+            })
+            logger.warning(
+                "MiniCPMTextEngine attempt %d: got %d sentences, expected %d — retrying",
+                attempt, len(lines), batch_size,
+            )
+
+        # Exhausted all retries
+        raise RuntimeError(
+            f"Failed to generate exactly {batch_size} sentences after {max_attempts} attempts. "
+            f"Last output: {last_raw_output!r}"
+        )
 
     def _validate_lines(self, lines: list[str], expected: int) -> bool:
         """Return True if line count matches expected batch size.
