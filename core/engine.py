@@ -78,9 +78,8 @@ class MiniCPMTextEngine:
     def generate(self, texts: list[str], scenario: str, cefr_level: CEFRLevel, batch_size: int | None = None) -> TextResult:
         """Generate English sentences using the loaded GGUF model.
 
-        Uses the ``TextResult.validate_and_parse()`` gate to strip thinking tags
-        and enforce exact sentence count. Retries with a stricter prompt on mismatch
-        (max 3 total attempts). Raises ValidationError if all attempts fail.
+        Delegates to :func:`core.text_gen.generate_sentences` for LLM calling,
+        retry loop, and extraction. Wraps result in ``TextResult``.
 
         Args:
             texts: Empty list (generation mode). Non-empty would be translation mode.
@@ -98,98 +97,10 @@ class MiniCPMTextEngine:
         if batch_size is None:
             raise ValueError("batch_size is required for text generation")
 
-        # Keep a fresh copy of the base messages for each attempt so retries
-        # don't accumulate stale reasoning from previous failed turns.
-        _base_messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are a language teacher. Generate simple, clear sentences at the specified CEFR level "
-                    "about the given scenario. Output ONE sentence per line, no numbering or explanations. "
-                    "DO NOT use any reasoning or thinking tags — just output the raw sentences."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Generate {batch_size} simple sentences at CEFR level {cefr_level.value}\n"
-                    f"about the following scenario. Output ONE sentence per line, no numbering.\n"
-                    f"Scenario: {scenario}\n"
-                    "Output ONLY the sentences, one per line. No explanations. DO NOT use any reasoning tags."
-                ),
-            },
-        ]
+        from core.text_gen import generate_sentences
 
-        max_attempts = 3
-        last_raw_output = ""
-
-        for attempt in range(1, max_attempts + 1):
-            # Start each attempt with the base messages + any retry history
-            messages = list(_base_messages)
-            output = self._llm.create_chat_completion(
-                messages=messages,
-                max_tokens=512,
-                temperature=0.7,
-            )
-
-            raw_text = output["choices"][0]["message"]["content"]
-            last_raw_output = raw_text
-
-            # Use the validation gate: strips thinking tags, splits lines,
-            # enforces exact count — all in one call.
-            try:
-                result = TextResult.validate_and_parse(raw_text, expected_count=batch_size)
-                logger.debug(
-                    "MiniCPMTextEngine: got %d/%d sentences on attempt %d",
-                    len(result.generated_texts), batch_size, attempt,
-                )
-                return result
-            except ValidationError as e:
-                # Count mismatch — append the model's (possibly bad) assistant
-                # turn plus a stricter retry prompt so the conversation context
-                # stays valid for the next attempt.
-                # Re-count after stripping thinking tags
-                stripped = re.sub(r"<thinking>.*?</thinking>", "", raw_text, flags=re.DOTALL).strip()
-                actual_count = len([l for l in stripped.split("\n") if l.strip()])
-                messages.append({
-                    "role": "assistant",
-                    "content": raw_text,
-                })
-                messages.append({
-                    "role": "user",
-                    "content": self._build_retry_prompt(actual_count, batch_size),
-                })
-                logger.warning(
-                    "MiniCPMTextEngine attempt %d: got %d sentences, expected %d — retrying",
-                    attempt, actual_count, batch_size,
-                )
-
-        # Exhausted all retries — raise structured error with raw output for debugging
-        raise ValidationError(
-            f"Failed to generate exactly {batch_size} sentences after {max_attempts} attempts.",
-            raw_output=last_raw_output,
-        )
-
-    def _build_retry_prompt(self, actual: int, expected: int) -> str:
-        """Build a stricter prompt referencing the count mismatch.
-
-        Args:
-            actual: Number of sentences the LLM produced.
-            expected: Number of sentences requested (batch_size).
-
-        Returns:
-            A user-message string to append as the next turn in the conversation.
-        """
-        if actual > expected:
-            return (
-                f"You were asked for exactly {expected} sentences but produced {actual}. "
-                f"Output only the first {expected} sentences now. ONE per line, no explanations."
-            )
-        else:
-            return (
-                f"You were asked for exactly {expected} sentences but produced {actual}. "
-                f"Produce all {expected} sentences now. ONE per line, no explanations."
-            )
+        sentences = generate_sentences(scenario, cefr_level, batch_size, self._llm)
+        return TextResult(generated_texts=sentences)
 
     def unload(self) -> None:
         """Unload the model and free memory."""
