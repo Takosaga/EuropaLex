@@ -70,7 +70,7 @@ The retry prompt is appended as a new user message in the same conversation cont
 After exhausting all retries:
 - Raise `RuntimeError` with a message containing the last raw LLM output for debugging.
 - The error propagates through `pipeline.py` → `app.py` → Gradio UI as a visible error to the user.
-- Model is still unloaded on failure (cleanup in `finally` block).
+- Model is unloaded after the method returns (success or failure), handled by `EnginePool`. The model stays loaded across retries within a single `generate()` call.
 
 ### Code Changes
 
