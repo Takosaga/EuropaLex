@@ -226,7 +226,7 @@ class LlamaCppTextEngine:
             messages.append({
                 "role": "user",
                 "content": self._build_single_translation_prompt(
-                    text, cefr_level, topic_description
+                    text, cefr_level, topic_description, effective_lang,
                 ),
             })
 
@@ -339,7 +339,13 @@ class LlamaCppTextEngine:
 
         return TextResult(generated_texts=translations)
 
-    def _build_single_translation_prompt(self, text: str, cefr_level: CEFRLevel, topic_description: str = "") -> str:
+    def _build_single_translation_prompt(
+            self,
+            text: str,
+            cefr_level: CEFRLevel,
+            topic_description: str = "",
+            target_language: str | None = None,
+    ) -> str:
         """Build prompt for translating a single sentence.
 
         Optimized for small models (tiny-aya-water ~3.3B params). Produces
@@ -347,8 +353,14 @@ class LlamaCppTextEngine:
         phrase things — not literal word-for-word translation.
 
         Uses CEFR linguistic guidance only — no hardcoded topics.
+
+        Args:
+            text: English sentence to translate.
+            cefr_level: CEFR proficiency level.
+            topic_description: Free-form context for the translation.
+            target_language: Language to translate into. Defaults to ``self.target_language``.
         """
-        target_lang = self.target_language
+        target_lang = target_language or self.target_language
         cefr_desc = cefr_level.description()
         topic_hint = f" Context: {topic_description}." if topic_description else ""
         return (
