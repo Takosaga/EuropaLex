@@ -1,2 +1,3 @@
 # EuropaLex Pipeline
-# Batch generator: text → audio → image orchestrator
+# Phase 2 placeholder — keep empty until implementation.
+# Will orchestrate batch generation (text → audio + images) when ready.

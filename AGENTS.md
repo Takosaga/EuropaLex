@@ -32,7 +32,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 > ⚠️ TildeOpen is still downloaded and available but not the active translation model. See `configs/settings.yaml` to switch back.
 
 **Architecture at a glance:**
-- `core/` — Pydantic types (`types.py`), inference engines + EnginePool singleton (`engine.py`), sentence extraction & generation helpers (`text_gen.py`), batch pipeline (`pipeline.py`)
+- `core/` — Pydantic types (`types.py`), inference engines + EnginePool singleton (`engine.py`), sentence extraction & generation helpers (`text_gen.py`), Phase 2 placeholder (`pipeline.py`)
 - `frontend/` — Gradio UI: widgets, card rendering, custom CSS
 - `models/` — HF Hub model downloader
 - `export/` — .apkg generator, CSV export, Anki tunnel sync
@@ -44,7 +44,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 
 | Module | Do | Don't |
 |---|---|---|
-| `core/` | Define types, implement inference protocols, orchestrate batch pipelines | Import from `frontend/` or `export/` |
+| `core/` | Define types, implement inference protocols, Phase 2 placeholder (`pipeline.py`) | Import from `frontend/` or `export/` |
 | `core/text_gen.py` | Sentence extraction (`extract_sentences`) and LLM generation with retry loop (`generate_sentences`) | Import from other modules for text generation logic |
 | `frontend/` | Render UI, handle Gradio events, style cards | Implement inference logic or export formats |
 | `models/` | Download and locate models | Run inference or generate content |
@@ -53,7 +53,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 
 ### File Organization Rules
 
-1. **One responsibility per file.** `cards.py` renders cards. `widgets.py` creates form controls. `pipeline.py` orchestrates batching. Don't mix responsibilities.
+1. **One responsibility per file.** `cards.py` renders cards. `widgets.py` creates form controls. `pipeline.py` is a Phase 2 placeholder — keep it empty until ready.
 2. **`__init__.py` files are minimal.** Just package markers — no imports, no logic.
 3. **UI components live in `frontend/ui/`.** Not in `app.py`. If a widget or renderer grows beyond ~100 lines, consider whether it needs its own file.
 4. **CSS lives in `frontend/css/custom.css`.** Inline styles are acceptable in card HTML (for portability when rendered as strings), but theme-level rules go in the CSS file.
@@ -87,7 +87,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 User input → app.py click handler → EnginePool.get(config) → MiniCPMTextEngine (Phase 1) → LlamaCppTextEngine (translation, Phase 2) → TTSEngine/ImageGenEngine (media, Phase 2) → frontend/ui/cards.py rendering → Gradio output
 ```
 
-When adding a new feature, follow this chain. Don't bypass `pipeline.py` — even single-card generation should go through it for consistency.
+When adding a new feature, follow this chain. Phase 1 uses `MiniCPMTextEngine` directly; Phase 2 will move to `pipeline.py` when implemented.
 
 **EnginePool singleton:** Manages mutual exclusion between all GPU engines: `MiniCPMTextEngine` (~1.1 GB RAM), `LlamaCppTextEngine` (translation, ~2 GB VRAM), `TTSEngine` (TTS), and `ImageGenEngine` (images). Only one can be loaded at a time.
 
@@ -196,9 +196,11 @@ Five concrete engine classes replace the legacy `InferenceEngine` protocol:
 
 ### pipeline.py
 
-The batch orchestrator. It receives a list of texts and produces batches of (text, audio, image) outputs based on toggle state. **Rules:**
-- Pipeline is the single point of parallelism control. If adding new media types, add them here first.
-- Use generator functions (`yield`) for streaming progress updates — Gradio consumes generators for real-time UI updates.
+Placeholder — currently empty. Phase 2 (translation + media) orchestration lives in `app.py` click handlers and will be migrated here when implemented. **Rules:**
+- Keep the file empty until Phase 2 implementation begins.
+- When ready, the pipeline will receive a list of texts and produce batches of (text, audio, image) outputs based on toggle state.
+- Pipeline will become the single point of parallelism control. If adding new media types, add them there first.
+- Will use generator functions (`yield`) for streaming progress updates — Gradio consumes generators for real-time UI updates.
 
 ## Testing Expectations
 
