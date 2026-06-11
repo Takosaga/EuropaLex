@@ -116,7 +116,7 @@ EuropaLex is organized into five main modules:
 
 | Module | Purpose |
 |---|---|
-| `core/` | Data types (`types.py`), inference engine protocol + implementations (`engine.py`), batch pipeline orchestrator (`pipeline.py`) |
+| `core/` | Data types (`types.py`), inference engines (`engine.py`), sentence extraction & generation helpers (`text_gen.py`), batch pipeline orchestrator (`pipeline.py`) |
 | `frontend/` | Gradio 6 UI: styled toggles (`widgets.py`), card rendering with two-phase layout (`cards.py`), custom CSS (`css/custom.css`) |
 | `models/` | Hugging Face Hub model downloader — fetches models at runtime, no git submodules |
 | `export/` | `.apkg` Anki package generator, CSV export, Anki tunnel sync via MCP server |
@@ -154,6 +154,7 @@ EuropaLex/
 │   ├── __init__.py
 │   ├── types.py            # Pydantic models: CardData, CEFRLevel, TextResult, AudioResult, ImageResult, EngineConfig
 │   ├── engine.py           # MiniCPMTextEngine (MiniCPM5-1B/llama-cpp-python), LlamaCppTextEngine (tiny-aya/llama-cpp-python), TTSEngine (OmniVoice), ImageGenEngine (diffusers), EnginePool singleton
+│   ├── text_gen.py         # Sentence extraction (extract_sentences) and generation with retry loop (generate_sentences)
 │   └── pipeline.py         # Batch generator: text → audio → image orchestrator
 ├── frontend/               # Gradio 6 UI
 │   ├── __init__.py
