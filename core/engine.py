@@ -119,6 +119,39 @@ class MiniCPMTextEngine:
         lines = [line.strip() for line in text.strip().split("\n") if line.strip()]
         return TextResult(translations=lines)
 
+    def _validate_lines(self, lines: list[str], expected: int) -> bool:
+        """Return True if line count matches expected batch size.
+
+        Args:
+            lines: Non-empty, stripped lines from LLM output.
+            expected: The number of sentences we asked for (batch_size).
+
+        Returns:
+            True if len(lines) == expected.
+        """
+        return len(lines) == expected
+
+    def _build_retry_prompt(self, actual: int, expected: int) -> str:
+        """Build a stricter prompt referencing the count mismatch.
+
+        Args:
+            actual: Number of sentences the LLM produced.
+            expected: Number of sentences requested (batch_size).
+
+        Returns:
+            A user-message string to append as the next turn in the conversation.
+        """
+        if actual > expected:
+            return (
+                f"You were asked for exactly {expected} sentences but produced {actual}. "
+                f"Output only the first {expected} sentences now. ONE per line, no explanations."
+            )
+        else:
+            return (
+                f"You were asked for exactly {expected} sentences but produced {actual}. "
+                f"Produce all {expected} sentences now. ONE per line, no explanations."
+            )
+
     def unload(self) -> None:
         """Unload the model and free memory."""
         if self._llm is not None:
