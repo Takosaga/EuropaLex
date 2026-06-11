@@ -69,7 +69,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 ### Naming
 
 - **Modules (lowercase, underscore):** `apkg_generator`, `anki_tunnel`, `download_models`
-- **Classes (PascalCase):** `CardData`, `CEFRLevel`, `MiniCPMTextEngine`, `LlamaCppTextEngine`, `TTSEngine`, `ImageGenEngine`, `EnginePool`, `InferenceEngine` (legacy protocol)
+- **Classes (PascalCase):** `CardData`, `CEFRLevel`, `MiniCPMTextEngine`, `LlamaCppTextEngine`, `TTSEngine`, `ImageGenEngine`, `EnginePool`, `ValidationError`
 - **Functions/variables (snake_case):** `render_card_html`, `generate_cards_html`, `batch_size`
 - **Constants (UPPER_SNAKE_CASE):** None currently needed; keep config in YAML
 
@@ -168,9 +168,10 @@ class CardData(BaseModel):
 
 Other Pydantic models:
 - `CEFRLevel(str, Enum)` — A0 through C2 proficiency levels
-- `TextResult` — `{translations: list[str]}` from text generation
-- `AudioResult` — `{audio_paths: list[str]}` from TTS
-- `ImageResult` — `{image_paths: list[str]}` from image generation
+- `ValidationError(RuntimeError)` — `{raw_output: str | None}` structured error for LLM output validation failures (carries raw model output)
+- `TextResult` — `{generated_texts: list[str] = Field(default_factory=list)}` from text generation; use classmethod `validate_and_parse(raw_text, expected_count=N)` to strip `<thinking>` tags and enforce count in one call
+- `AudioResult` — `{audio_paths: list[str | None] = Field(default_factory=list)}` from TTS (individual failures tracked as `None`)
+- `ImageResult` — `{image_paths: list[str | None] = Field(default_factory=list)}` from image generation (individual failures tracked as `None`)
 - `EngineConfig(BaseModel)` — validated config from `configs/settings.yaml`
 
 ### engine.py
@@ -190,7 +191,7 @@ Five concrete engine classes replace the legacy `InferenceEngine` protocol:
 - All engines (MiniCPMTextEngine, LlamaCppTextEngine, TTSEngine, ImageGenEngine) are lazy-loaded and unloaded via `del` + `torch.cuda.empty_cache()`.
 - Each engine class should be self-contained. Don't share state between implementations.
 
-**MiniCPMTextEngine validation:** `generate()` wraps the LLM call in a retry loop (max 3 attempts). After each attempt, `_validate_lines()` checks that output line count matches `batch_size`. On mismatch, `_build_retry_prompt()` constructs a stricter prompt referencing the actual vs expected count, appended as a new user message in the same conversation context. On exhaustion, raises `RuntimeError` with last raw output for debugging. Do not bypass this loop — it is the contract enforcement layer between LLM output and `TextResult`.
+**MiniCPMTextEngine validation:** `generate()` wraps the LLM call in a retry loop (max 3 attempts). Each attempt uses `TextResult.validate_and_parse(raw_text, expected_count=batch_size)` as its validation gate — stripping `<thinking>` tags, splitting lines, and enforcing exact count in one call. On mismatch, `_build_retry_prompt()` constructs a stricter prompt referencing the actual vs expected count, appended as a new user message in the same conversation context. On exhaustion, raises `ValidationError` with `raw_output` attached for debugging. Do not bypass this loop — it is the contract enforcement layer between LLM output and `TextResult`.
 
 ### pipeline.py
 
@@ -218,7 +219,7 @@ The frontend can render cards from mock data (no model inference needed). When t
 
 ### Inline Tests
 
-For new modules with non-trivial logic, add a test script in `scripts/` guarded by `if __name__ == "__main__":`. See `scripts/test_count_enforcement.py` as an example — it tests helper method logic without requiring model inference.
+For new modules with non-trivial logic, add a test script in `scripts/` guarded by `if __name__ == "__main__":`. See `scripts/test_count_enforcement.py` as an example — it tests `TextResult.validate_and_parse()` (thinking-tag stripping, line-count enforcement) and retry-prompt logic without requiring model inference.
 
 ### No Unit Test Framework Required (Yet)
 
@@ -298,4 +299,4 @@ Models live in a configurable directory (default: `.local/models/`, see `configs
 
 ### 6. LLM output may not match expected count
 
-`MiniCPMTextEngine.generate()` validates sentence count against `batch_size` and retries automatically (max 3 attempts). Do **not** slice output with `[:batch_size]` as a band-aid — the engine already handles this via `_validate_lines()` + retry loop. If you bypass the engine and call the LLM directly, you must implement the same validation logic.
+`MiniCPMTextEngine.generate()` validates sentence count against `batch_size` and retries automatically (max 3 attempts). Do **not** slice output with `[:batch_size]` as a band-aid — the engine already handles this via `TextResult.validate_and_parse()` + retry loop. If you bypass the engine and call the LLM directly, you must implement the same validation logic.

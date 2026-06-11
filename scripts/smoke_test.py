@@ -33,13 +33,13 @@ def main():
 
     # Test 4: Validate TextResult construction
     try:
-        result = TextResult(translations=["Sveiki", "Labdien"])
-        assert len(result.translations) == 2
+        result = TextResult(generated_texts=["Sveiki", "Labdien"])
+        assert len(result.generated_texts) == 2
         print("✓ TextResult validation OK")
     except Exception as e:
         errors.append(f"TextResult validation failed: {e}")
 
-    # Test 5: Validate AudioResult construction
+    # Test 5: Validate AudioResult construction (never None — default_factory=list)
     try:
         result = AudioResult(audio_paths=["/path/audio_0.wav", "/path/audio_1.wav"])
         assert len(result.audio_paths) == 2
@@ -47,7 +47,7 @@ def main():
     except Exception as e:
         errors.append(f"AudioResult validation failed: {e}")
 
-    # Test 6: Validate ImageResult construction
+    # Test 6: Validate ImageResult construction (never None — default_factory=list)
     try:
         result = ImageResult(image_paths=["/path/image_0.png"])
         assert len(result.image_paths) == 1
@@ -55,7 +55,28 @@ def main():
     except Exception as e:
         errors.append(f"ImageResult validation failed: {e}")
 
-    # Test 7: Import frontend modules
+    # Test 7: Validate TextResult.validate_and_parse gate
+    try:
+        from core.types import ValidationError
+        result = TextResult.validate_and_parse("Hello\nWorld", expected_count=2)
+        assert len(result.generated_texts) == 2
+        assert result.generated_texts[0] == "Hello"
+        # Strips thinking tags
+        raw_with_tags = "<thinking>reasoning here</thinking>\nFoo\nBar"
+        result2 = TextResult.validate_and_parse(raw_with_tags, expected_count=2)
+        assert len(result2.generated_texts) == 2
+        assert result2.generated_texts[0] == "Foo"
+        # Raises on count mismatch
+        try:
+            TextResult.validate_and_parse("One\nTwo\nThree", expected_count=2)
+            assert False, "Should have raised ValidationError"
+        except ValidationError:
+            pass  # expected
+        print("✓ TextResult.validate_and_parse gate OK")
+    except Exception as e:
+        errors.append(f"TextResult validation gate failed: {e}")
+
+    # Test 8: Import frontend modules
     try:
         from frontend.ui.cards import render_card_html, generate_cards_html, generate_progress_html
         from frontend.ui.widgets import create_toggle
@@ -63,7 +84,7 @@ def main():
     except Exception as e:
         errors.append(f"frontend.ui import failed: {e}")
 
-    # Test 8: Import app module
+    # Test 9: Import app module
     try:
         import app
         print("✓ app module loads OK")

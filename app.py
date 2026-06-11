@@ -137,7 +137,7 @@ def generate_text_async(
         return
 
     # Convert TextResult to card dicts for rendering
-    cards = [{"text": t, "translation": "", "cefr_level": cefr} for t in texts.translations]
+    cards = [{"text": t, "translation": "", "cefr_level": cefr} for t in texts.generated_texts]
 
     yield generate_progress_html(60, "Generating text..."), ""
     yield generate_progress_html(100, "Text ready! Adjust media toggles and click Generate Cards."), generate_cards_html(cards, include_image=False, include_audio=False, placeholder_back=True)

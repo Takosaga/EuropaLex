@@ -65,8 +65,8 @@ def test_generate_calls_llama_cli_subprocess():
             batch_size=3,
         )
 
-    assert len(result.translations) == 3
-    assert result.translations[0] == "Sentence one."
+    assert len(result.generated_texts) == 3
+    assert result.generated_texts[0] == "Sentence one."
 
     # Verify llama-cli was called with correct args
     call_args = mock_run.call_args

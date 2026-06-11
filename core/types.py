@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 from pathlib import Path
 from typing import ClassVar
@@ -32,22 +33,104 @@ class CardData(BaseModel):
     cefr_level: CEFRLevel = CEFRLevel.B1  # Proficiency level
 
 
-class TextResult(BaseModel):
-    """Output from a text generation engine."""
+class ValidationError(RuntimeError):
+    """Raised when raw LLM output fails structural validation.
 
-    translations: list[str]  # One per input text, in order
+    Mirrors the ai-pr-enricher-softmax pattern of a custom error type
+    for AI output validation failures instead of generic exceptions.
+    """
+
+    def __init__(self, message: str, raw_output: str | None = None):
+        super().__init__(message)
+        self.raw_output = raw_output
+
+
+class TextResult(BaseModel):
+    """Structured output from a text-generation engine.
+
+    The ``generated_texts`` field is always a non-empty list — never None.
+    Use the classmethod ``validate_and_parse()`` to convert raw LLM output
+    through the thinking-tag stripper and line-count gate before accessing
+    this model directly.
+    """
+
+    generated_texts: list[str] = Field(
+        default_factory=list,
+        description="One sentence per requested batch size, in order",
+    )
+
+    @classmethod
+    def validate_and_parse(
+        cls,
+        raw_text: str,
+        expected_count: int | None = None,
+    ) -> TextResult:
+        """Validate and parse raw LLM output into a structured TextResult.
+
+        Strips any ``<thinking>...</thinking>`` block, splits on newlines,
+        and optionally enforces an exact sentence count. Mirrors the
+        ai-pr-enricher-softmax pattern where a validation gate sits
+        between the raw model response and downstream typed consumers.
+
+        Args:
+            raw_text: Raw string returned by the LLM (may contain thinking tags).
+            expected_count: If set, raises ValidationError when line count
+                does not match. Pass ``batch_size`` here for strict mode.
+
+        Returns:
+            TextResult with cleaned, validated lines.
+
+        Raises:
+            ValidationError: When ``expected_count`` is set and the line
+                count doesn't match, or when no valid lines remain after
+                stripping thinking tags.
+        """
+        # Strip <thinking>...</thinking> blocks (greedy across newlines)
+        cleaned = re.sub(r"<thinking>.*?</thinking>", "", raw_text, flags=re.DOTALL).strip()
+        lines = [line.strip() for line in cleaned.split("\n") if line.strip()]
+
+        if not lines:
+            raise ValidationError(
+                "LLM output contained no valid sentences after stripping thinking tags.",
+                raw_output=raw_text,
+            )
+
+        if expected_count is not None and len(lines) != expected_count:
+            raise ValidationError(
+                f"Expected {expected_count} sentences but got {len(lines)}. "
+                f"Last output: {raw_text!r}",
+                raw_output=raw_text,
+            )
+
+        return cls(generated_texts=lines)
 
 
 class AudioResult(BaseModel):
-    """Output from TTS generation."""
+    """Output from TTS generation.
 
-    audio_paths: list[str] | None = None  # One per input text, absolute paths to .wav files
+    ``audio_paths`` is always a list (never None) — empty when no audio was
+    generated. Mirrors the ai-pr-enricher-softmax convention of using
+    ``default_factory=list`` so downstream code never sees None checks.
+    """
+
+    audio_paths: list[str | None] = Field(
+        default_factory=list,
+        description="Absolute paths to generated .wav files, one per input text (None if failed)",
+    )
 
 
 class ImageResult(BaseModel):
-    """Output from image generation."""
+    """Output from image generation.
 
-    image_paths: list[str] | None = None  # One per prompt, absolute paths to .png files
+    ``image_paths`` is always a list (never None) — empty when no images were
+    generated. Mirrors the ai-pr-enricher-softmax convention of using
+    ``default_factory=list`` so downstream code never sees None checks.
+    """
+
+    image_paths: list[str | None] = Field(
+        default_factory=list,
+        description="Absolute paths to generated .png files, one per prompt (None if failed)",
+    )
 
 
 class EngineConfig(BaseModel):
