@@ -50,7 +50,7 @@ All models are GGUF format, downloaded from Hugging Face Hub at runtime (no git 
 uv run python -m models.download_models
 
 # Or download specific models
-uv run python -m models.download_models nemotron tiny_aya  # Text generation only (~20 GB)
+uv run python -m models.download_models minicpm tiny_aya  # Text generation + translation (~3.2 GB)
 uv run python -m models.download_models omnivoice           # TTS only (~945 MB)
 uv run python -m models.download_models flux                # Image gen only (~2.6 GB)
 
@@ -60,14 +60,14 @@ uv run python -m models.download_models --output-dir ./my-models
 
 | Model | HF Hub Repo | GGUF File | Runtime | Size | Role |
 |---|---|---|---|---|---|
-| Nemotron-3-Nano 30B-A3B IQ4_XS | [bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF](https://huggingface.co/bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF) | `Nemotron-3-Nano-30B-A3B-IQ4_XS.gguf` | llama-cli | 18.1 GB | English text generation (Phase 1) |
+| MiniCPM5-1B Q8_0 | [Abiray/MiniCPM5-1B-GGUF](https://huggingface.co/Abiray/MiniCPM5-1B-GGUF) | `minicpm5-1b-Q8_0.gguf` | llama-cpp-python | ~1.1 GB | English text generation (Phase 1) |
 | tiny-aya-water q4_k_m | [CohereLabs/tiny-aya-water-GGUF](https://huggingface.co/CohereLabs/tiny-aya-water-GGUF) | `tiny-aya-water-q4_k_m.gguf` | llama-cpp-python | ~2 GB | Translation (active) |
 | TildeOpen-30b Q4_K_S ⚠️ | [bartowski/TildeAI_TildeOpen-30b-GGUF](https://huggingface.co/bartowski/TildeAI_TildeOpen-30b-GGUF) | `TildeAI_TildeOpen-30b-Q4_K_S.gguf` | llama-cli | 17.6 GB | Translation (available, not active) |
 | OmniVoice Q8_0 (base + tokenizer) | [Serveurperso/OmniVoice-GGUF](https://huggingface.co/Serveurperso/OmniVoice-GGUF) | `omnivoice-base-Q8_0.gguf` + `omnivoice-tokenizer-Q8_0.gguf` | omnivoice.cpp | ~945 MB | Text-to-speech |
 | FLUX.2-klein 4B Q4_K_M | [unsloth/FLUX.2-klein-4B-GGUF](https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF) | `flux-2-klein-4b-Q4_K_M.gguf` | ComfyUI-GGUF / diffusers | ~2.6 GB | Image generation |
 
 > **Note:** Models use different runtimes:
-> - **llama-cli** for Nemotron (English text generation) — subprocess-based, no persistent VRAM
+> - **llama-cpp-python** for MiniCPM5-1B (English text generation) — lazy-load/unload via Python bindings (~1.1 GB RAM)
 > - **llama-cpp-python** for tiny-aya-water (translation) — lazy-load/unload via Python bindings (~2 GB VRAM)
 > - **omnivoice.cpp** for OmniVoice — text-to-speech (C++/GGML port)
 > - **ComfyUI-GGUF / diffusers** for FLUX.2 — image generation (diffusion model)
@@ -82,24 +82,28 @@ uv run python -m models.download_models --output-dir ./my-models
 
 ## Workflow
 
-EuropaLex generates flashcards in two phases: text first, then media.
+EuropaLex generates flashcards in two phases: English text first (Phase 1), then translation + media (Phase 2).
 
-### Phase 1 — Generate Text
+### Phase 1 — Generate English Text
 
 1. Enter a scenario or paste text in the input box
 2. Select a CEFR level (`A0`–`C2`) from the dropdown
 3. Set the batch size with the slider (number of cards to generate)
 4. Click **Generate Text**
-5. The app generates English sentences via Nemotron, then translates them via tiny-aya-water
+5. The app generates English sentences via MiniCPM5-1B (`MiniCPMTextEngine`, llama-cpp-python, lazy-load/unload)
 6. Cards appear in the gallery with English text on the front and a placeholder on the back
 
-### Phase 2 — Generate Media
+> **Note:** Translation is deferred to Phase 2. Phase 1 produces English-only cards.
+
+### Phase 2 — Generate Translation + Media (deferred)
 
 1. After Phase 1 completes, the **Images** and **Audio** toggles become active
 2. Toggle on whichever media types you want (images, audio, or both)
 3. Click **Generate Cards**
-4. The app calls OmniVoice for text-to-speech and FLUX.2 for illustrative images
+4. The app translates via tiny-aya-water (`LlamaCppTextEngine`), then calls OmniVoice for TTS and FLUX.2 for images
 5. Cards update: translation moves to the front, English stays on the back; image and audio controls appear on the front side
+
+> **Note:** Phase 2 is currently deferred — the UI shows mock data until translation + media integration is complete.
 
 ### Export
 
@@ -112,7 +116,7 @@ EuropaLex is organized into five main modules:
 
 | Module | Purpose |
 |---|---|
-| `core/` | Data types (`types.py`), inference engine protocol + implementations (`engine.py`), batch pipeline orchestrator (`pipeline.py`) |
+| `core/` | Data types (`types.py`), inference engines (`engine.py`), sentence extraction & generation helpers (`text_gen.py`), batch pipeline orchestrator (`pipeline.py`) |
 | `frontend/` | Gradio 6 UI: styled toggles (`widgets.py`), card rendering with two-phase layout (`cards.py`), custom CSS (`css/custom.css`) |
 | `models/` | Hugging Face Hub model downloader — fetches models at runtime, no git submodules |
 | `export/` | `.apkg` Anki package generator, CSV export, Anki tunnel sync via MCP server |
@@ -121,16 +125,16 @@ EuropaLex is organized into five main modules:
 ### Data Flow
 
 ```
-User Input → [Gradio UI] → EnginePool (singleton) → TextEngine/TTS/ImageGen → Card Gallery → Export (.apkg / .csv)
+User Input → [Gradio UI] → EnginePool (singleton) → MiniCPMTextEngine/TTS/ImageGen → Card Gallery → Export (.apkg / .csv)
 ```
 
 - **Inference:** `core/engine.py` defines five engine classes:
-  - `TextEngine` — llama-cli subprocess wrapper for Nemotron (stateless, spawns fresh process per call)
-  - `LlamaCppTextEngine` — llama-cpp-python wrapper for tiny-aya-water translation (lazy-load/unload, ~2 GB VRAM)
-  - `TTSEngine` — OmniVoice Python package with lazy-load/unload cycle (GPU memory managed by EnginePool)
-  - `ImageGenEngine` — diffusers Flux2KleinPipeline with lazy-load/unload cycle (GPU memory managed by EnginePool)
-  - `EnginePool` — singleton orchestrator enforcing mutual exclusion between all GPU engines
-- **Types:** `core/types.py` provides Pydantic models (`CardData`, `CEFRLevel`, `TextResult`, `AudioResult`, `ImageResult`, `EngineConfig`) for type-safe boundaries.
+  - `MiniCPMTextEngine` — llama-cpp-python wrapper for MiniCPM5-1B Q8_0 (lazy-load/unload, ~1.1 GB RAM, uses apply_chat_template). Uses `TextResult.validate_and_parse()` to strip `<thinking>` tags and enforce exact sentence count; retries with stricter prompts on mismatch (max 3 attempts). Used in Phase 1 for English text generation only.
+  - `LlamaCppTextEngine` — llama-cpp-python wrapper for tiny-aya-water translation (lazy-load/unload, ~2 GB VRAM). Used in Phase 2 for translation.
+  - `TTSEngine` — OmniVoice Python package with lazy-load/unload cycle (GPU memory managed by EnginePool). Used in Phase 2 for TTS audio.
+  - `ImageGenEngine` — diffusers Flux2KleinPipeline with lazy-load/unload cycle (GPU memory managed by EnginePool). Used in Phase 2 for images.
+  - `EnginePool` — singleton orchestrator enforcing mutual exclusion between all GPU engines. Phase 1 uses only `MiniCPMTextEngine` (~1.1 GB RAM). Phase 2 loads GPU engines sequentially: translation → TTS/images.
+- **Types:** `core/types.py` provides Pydantic models (`CardData`, `CEFRLevel`, `ValidationError`, `TextResult`, `AudioResult`, `ImageResult`, `EngineConfig`) for type-safe boundaries. `TextResult.generated_texts` replaces the legacy `.translations`; `AudioResult.audio_paths` and `ImageResult.image_paths` are `list[str | None]` (never None at top level).
 - **Pipeline:** `core/pipeline.py` orchestrates batch generation — text first, then audio and images in parallel based on toggle state.
 - **Frontend:** `frontend/ui/cards.py` renders individual cards as HTML with conditional media elements; `generate_cards_html()` layouts them in a flex gallery with natural rotation offsets.
 - **Export:** `export/apkg_generator.py` builds Anki packages; `export/csv_export.py` writes tabular data; `export/anki_tunnel.py` communicates with the Anki MCP tunnel server.
@@ -149,7 +153,8 @@ EuropaLex/
 ├── core/                   # Shared business logic
 │   ├── __init__.py
 │   ├── types.py            # Pydantic models: CardData, CEFRLevel, TextResult, AudioResult, ImageResult, EngineConfig
-│   ├── engine.py           # TextEngine (Nemotron/llama-cli), LlamaCppTextEngine (tiny-aya/llama-cpp-python), TTSEngine (OmniVoice), ImageGenEngine (diffusers), EnginePool singleton
+│   ├── engine.py           # MiniCPMTextEngine (MiniCPM5-1B/llama-cpp-python), LlamaCppTextEngine (tiny-aya/llama-cpp-python), TTSEngine (OmniVoice), ImageGenEngine (diffusers), EnginePool singleton
+│   ├── text_gen.py         # Sentence extraction (extract_sentences) and generation with retry loop (generate_sentences)
 │   └── pipeline.py         # Batch generator: text → audio → image orchestrator
 ├── frontend/               # Gradio 6 UI
 │   ├── __init__.py
@@ -182,4 +187,4 @@ EuropaLex/
 `[A0, A1, A2, B1, B2, C1, C2]`
 
 - **A0:** Uses curated common words list (no text generation model needed)
-- **A1–C2:** tiny-aya-water translates English text to the target language at the selected CEFR level
+- **A1–C2:** MiniCPM5-1B generates English sentences at the selected level in Phase 1; tiny-aya-water translates them in Phase 2 (deferred)

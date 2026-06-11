@@ -2,24 +2,98 @@
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 from pathlib import Path
-from typing import ClassVar
-
 import yaml
 from pydantic import BaseModel, Field
 
 
 class CEFRLevel(str, Enum):
-    """CEFR proficiency levels supported by EuropaLex."""
+    """CEFR proficiency levels supported by EuropaLex.
+
+    Each level carries a description suitable for prompt generation and UI display.
+    See https://www.coe.int/en/web/common-european-framework-reference-languages/
+    """
 
     A0 = "A0"
+    """Pre-Entry — No language knowledge yet."""
+
     A1 = "A1"
+    """Beginner — Very simple sentences (3–6 words), present tense only, basic vocabulary.
+    Topics: greetings, family, food, daily routine, immediate needs."""
+
     A2 = "A2"
+    """Elementary — Short sentences (5–8 words), simple past/future introduced.
+    Topics: shopping, directions, weather, personal details, everyday situations."""
+
     B1 = "B1"
+    """Intermediate — Medium sentences (8–12 words), conditionals and relative clauses.
+    Topics: travel, personal interests, opinions, simple connected text."""
+
     B2 = "B2"
+    """Upper-Intermediate — Longer sentences (10–15 words), complex grammar (passives,
+    reported speech). Topics: abstract ideas, arguments, professional contexts."""
+
     C1 = "C1"
+    """Advanced — Long nuanced sentences (12–18+ words), idiomatic language,
+    implicit meaning. Topics: academic, professional, social fluency."""
+
     C2 = "C2"
+    """Mastery — Near-native fluency, highly precise vocabulary, stylistic variation.
+    Topics: literary, technical, native-level comprehension."""
+
+    def label(self) -> str:
+        """Return the short human-readable label (e.g. 'Beginner' for A1)."""
+        labels = {
+            CEFRLevel.A0: "Pre-Entry",
+            CEFRLevel.A1: "Beginner",
+            CEFRLevel.A2: "Elementary",
+            CEFRLevel.B1: "Intermediate",
+            CEFRLevel.B2: "Upper-Intermediate",
+            CEFRLevel.C1: "Advanced",
+            CEFRLevel.C2: "Mastery",
+        }
+        return labels[self]
+
+    def description(self) -> str:
+        """Return the full CEFR description for prompt generation.
+
+        Returns guidance on sentence length, grammar complexity, and
+        recommended topics for the given proficiency level.
+        """
+        descs = {
+            CEFRLevel.A0: "Pre-Entry — No language knowledge yet.",
+            CEFRLevel.A1: (
+                "Beginner — Very simple sentences (3–6 words), present tense only, "
+                "basic vocabulary. Topics: greetings, family, food, daily routine, "
+                "immediate needs."
+            ),
+            CEFRLevel.A2: (
+                "Elementary — Short sentences (5–8 words), simple past/future "
+                "introduced. Topics: shopping, directions, weather, personal details, "
+                "everyday situations."
+            ),
+            CEFRLevel.B1: (
+                "Intermediate — Medium sentences (8–12 words), conditionals and "
+                "relative clauses. Topics: travel, personal interests, opinions, "
+                "simple connected text."
+            ),
+            CEFRLevel.B2: (
+                "Upper-Intermediate — Longer sentences (10–15 words), complex grammar "
+                "(passives, reported speech). Topics: abstract ideas, arguments, "
+                "professional contexts."
+            ),
+            CEFRLevel.C1: (
+                "Advanced — Long nuanced sentences (12–18+ words), idiomatic language, "
+                "implicit meaning. Topics: academic, professional, social fluency."
+            ),
+            CEFRLevel.C2: (
+                "Mastery — Near-native fluency, highly precise vocabulary, stylistic "
+                "variation. Topics: literary, technical, native-level comprehension."
+            ),
+        }
+        return descs[self]
 
 
 class CardData(BaseModel):
@@ -32,22 +106,108 @@ class CardData(BaseModel):
     cefr_level: CEFRLevel = CEFRLevel.B1  # Proficiency level
 
 
-class TextResult(BaseModel):
-    """Output from a text generation engine."""
+class ValidationError(RuntimeError):
+    """Raised when raw LLM output fails structural validation.
 
-    translations: list[str]  # One per input text, in order
+    Mirrors the ai-pr-enricher-softmax pattern of a custom error type
+    for AI output validation failures instead of generic exceptions.
+    """
+
+    def __init__(self, message: str, raw_output: str | None = None):
+        super().__init__(message)
+        self.raw_output = raw_output
+
+
+class TextResult(BaseModel):
+    """Structured output from a text-generation engine.
+
+    The ``generated_texts`` field is always a non-empty list — never None.
+    Use the classmethod ``validate_and_parse()`` to convert raw LLM output
+    through the thinking-tag stripper and line-count gate before accessing
+    this model directly.
+    """
+
+    generated_texts: list[str] = Field(
+        default_factory=list,
+        description="One sentence per requested batch size, in order",
+    )
+
+    @classmethod
+    def validate_and_parse(
+        cls,
+        raw_text: str,
+        expected_count: int | None = None,
+    ) -> TextResult:
+        """Validate and parse raw LLM output into a structured TextResult.
+
+        Strips any ``<thinking>...</thinking>`` block, splits on newlines,
+        removes optional numbered prefixes ("1. ", "2. "), and optionally
+        enforces an exact sentence count. Mirrors the ai-pr-enricher-softmax
+        pattern where a validation gate sits between the raw model response
+        and downstream typed consumers.
+
+        Args:
+            raw_text: Raw string returned by the LLM (may contain thinking tags).
+            expected_count: If set, raises ValidationError when line count
+                does not match. Pass ``batch_size`` here for strict mode.
+
+        Returns:
+            TextResult with cleaned, validated lines.
+
+        Raises:
+            ValidationError: When ``expected_count`` is set and the line
+                count doesn't match, or when no valid lines remain after
+                stripping thinking tags.
+        """
+        # Strip <thinking>...</thinking> blocks (greedy across newlines)
+        cleaned = re.sub(r"<thinking>.*?</thinking>", "", raw_text, flags=re.DOTALL).strip()
+        lines = [line.strip() for line in cleaned.split("\n") if line.strip()]
+
+        # Remove optional numbered prefixes: "1. ", "2)", "3) ", etc.
+        lines = [re.sub(r"^\d+[.)]\s*", "", line).strip() for line in lines]
+
+        if not lines:
+            raise ValidationError(
+                "LLM output contained no valid sentences after stripping thinking tags.",
+                raw_output=raw_text,
+            )
+
+        if expected_count is not None and len(lines) != expected_count:
+            raise ValidationError(
+                f"Expected {expected_count} sentences but got {len(lines)}. "
+                f"Last output: {raw_text!r}",
+                raw_output=raw_text,
+            )
+
+        return cls(generated_texts=lines)
 
 
 class AudioResult(BaseModel):
-    """Output from TTS generation."""
+    """Output from TTS generation.
 
-    audio_paths: list[str] | None = None  # One per input text, absolute paths to .wav files
+    ``audio_paths`` is always a list (never None) — empty when no audio was
+    generated. Mirrors the ai-pr-enricher-softmax convention of using
+    ``default_factory=list`` so downstream code never sees None checks.
+    """
+
+    audio_paths: list[str | None] = Field(
+        default_factory=list,
+        description="Absolute paths to generated .wav files, one per input text (None if failed)",
+    )
 
 
 class ImageResult(BaseModel):
-    """Output from image generation."""
+    """Output from image generation.
 
-    image_paths: list[str] | None = None  # One per prompt, absolute paths to .png files
+    ``image_paths`` is always a list (never None) — empty when no images were
+    generated. Mirrors the ai-pr-enricher-softmax convention of using
+    ``default_factory=list`` so downstream code never sees None checks.
+    """
+
+    image_paths: list[str | None] = Field(
+        default_factory=list,
+        description="Absolute paths to generated .png files, one per prompt (None if failed)",
+    )
 
 
 class EngineConfig(BaseModel):
@@ -55,9 +215,20 @@ class EngineConfig(BaseModel):
 
     models_dir: str = ".local/models"
     llm_model_path: str  # Path to TildeOpen GGUF file
-    nemotron_model_path: str  # Path to Nemotron GGUF file
+    minicpm_model_path: str  # Path to MiniCPM5-1B Q8_0 GGUF file
     device: str = "cuda"  # "cuda", "mps", or "cpu"
     batch_size: int = 3
+
+    # llama-cli generation parameters (Nemotron / TextEngine)
+    n_ctx: int = 4096  # Context length in tokens
+    n_threads: int = 5  # CPU thread pool size
+    n_batch: int = 4096  # Evaluation batch size
+    top_k: int = 40  # Top-K sampling
+    repeat_penalty: float = 1.1  # Repeat penalty
+    top_p: float = 0.9  # Top-P (nucleus) sampling
+    min_p: float = 0.05  # Min-P sampling
+    temperature: float = 0.7  # Generation temperature
+    max_tokens: int = 512  # Maximum response length
 
     @classmethod
     def from_settings_yaml(cls, path: str | Path = "configs/settings.yaml") -> EngineConfig:
@@ -94,10 +265,21 @@ class EngineConfig(BaseModel):
         llm_runtime = llm_cfg.get("runtime", "llama-cli") if llm_cfg else "llama-cli"
         llm_subdir = "tiny_aya" if llm_runtime in ("transformers", "llama-cpp-python") else ("tildeopen" if llm_cfg else "tildeopen")
 
+        gen = raw.get("generation", {})
+
         return cls(
             models_dir=models.get("directory", ".local/models"),
             llm_model_path=str(Path(models.get("directory", ".local/models")) / llm_subdir / llm_cfg["file"]),
-            nemotron_model_path=str(Path(models.get("directory", ".local/models")) / "nemotron" / models["nemotron"]["file"]),
+            minicpm_model_path=str(Path(models.get("directory", ".local/models")) / "minicpm" / models["minicpm"]["file"]),
             device=device,
             batch_size=batch.get("default_size", 3),
+            n_ctx=gen.get("n_ctx", 4096),
+            n_threads=gen.get("n_threads", 5),
+            n_batch=gen.get("n_batch", 4096),
+            top_k=gen.get("top_k", 40),
+            repeat_penalty=gen.get("repeat_penalty", 1.1),
+            top_p=gen.get("top_p", 0.9),
+            min_p=gen.get("min_p", 0.05),
+            temperature=gen.get("temperature", 0.7),
+            max_tokens=gen.get("max_tokens", 512),
         )

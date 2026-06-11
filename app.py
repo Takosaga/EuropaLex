@@ -7,7 +7,13 @@ No backend connection — visual preview only.
 Run: uv sync && python app.py
 """
 
+import logging
+
 import gradio as gr
+
+logger = logging.getLogger(__name__)
+from core.engine import EnginePool, MiniCPMTextEngine
+from core.types import CEFRLevel, EngineConfig
 from frontend.ui.cards import render_card_html, generate_cards_html, generate_progress_html
 from frontend.ui.widgets import create_toggle
 
@@ -70,25 +76,71 @@ def generate_text_async(
     cefr_level: str,
     batch_size: int,
 ):
-    """Phase 1: Generate English text on cards (no media).
+    """Phase 1: Generate English text only using Nemotron (no translation).
 
     Yields (progress_html, card_output_html) tuples.
     Cards show English text with dashed placeholder back side.
+    Phase 2 (translation + media) is deferred — stays as mock data.
     """
-    raw_cards = MOCK_CARDS.get(cefr_level, MOCK_CARDS["B1"])
-    selected_raw = raw_cards[:batch_size]
+    # Load config and get engine
+    try:
+        config = EngineConfig.from_settings_yaml()
+        pool = EnginePool.get(config)
+        engine = pool.get_english_engine()
 
-    if not selected_raw:
-        yield generate_progress_html(0, "No cards available"), '<div style="color:#8b7355; padding:20px;">No cards available for this level.</div>'
+        cefr = CEFRLevel(cefr_level)
+    except FileNotFoundError as e:
+        logger.error("Phase 1 model not found: %s", e)
+        yield generate_progress_html(0, f"\u26a0\ufe0f Model file missing: {e}"), (
+            '<div style="color:#c44; padding:20px;">'
+            '<strong>Model file not found.</strong><br>'
+            f'{e}<br><br>'
+            'Run <code>python models/download_models.py minicpm</code> to download MiniCPM5-1B, '
+            'or check <code>configs/settings.yaml</code> for the correct path.'
+            '</div>'
+        )
+        return
+    except Exception as e:
+        logger.error("Phase 1 setup failed: %s", e, exc_info=True)
+        yield generate_progress_html(0, f"\u26a0\ufe0f Setup error: {e}"), (
+            '<div style="color:#c44; padding:20px;">'
+            f'<strong>Failed to initialize engine.</strong><br>{e}<br><br>'
+            'Check <code>configs/settings.yaml</code> and run the smoke test: '
+            '<code>python scripts/smoke_test.py</code>'
+            '</div>'
+        )
         return
 
-    # Transform to two-phase format: text=English, translation=Latvian (placeholder)
-    cards = transform_mock_cards(selected_raw)
+    # Generate English text via Nemotron
+    try:
+        yield generate_progress_html(20, "Preparing MiniCPM5-1B generation..."), ""
+        texts = engine.generate(
+            texts=[],  # empty = generation mode (not translation)
+            scenario=scenario,
+            cefr_level=cefr,
+            batch_size=batch_size,
+        )
+    except Exception as e:
+        logger.error("Phase 1 generation failed: %s", e, exc_info=True)
+        err_detail = str(e)
+        yield generate_progress_html(0, f"\u26a0\ufe0f Generation failed"), (
+            '<div style="color:#c44; padding:20px;">'
+            f'<strong>MiniCPM5-1B generation failed.</strong><br>'
+            f'{err_detail}<br><br>'
+            'Possible causes:<br>'
+            '• llama-cpp-python not installed — run: <code>uv pip install llama-cpp-python</code><br>'
+            '• Model file corrupted or incompatible format<br>'
+            '• Insufficient VRAM (~1.1 GB required)<br><br>'
+            'Check the terminal for full error output.'
+            '</div>'
+        )
+        return
 
-    # Render with placeholder back
-    phase_cards_text_only = generate_cards_html(cards, include_image=False, include_audio=False, placeholder_back=True)
-    yield generate_progress_html(30, "Generating text..."), phase_cards_text_only
-    yield generate_progress_html(100, "Text ready! Adjust media toggles and click Generate Cards."), phase_cards_text_only
+    # Convert TextResult to card dicts for rendering
+    cards = [{"text": t, "translation": "", "cefr_level": cefr} for t in texts.generated_texts]
+
+    yield generate_progress_html(60, "Generating text..."), ""
+    yield generate_progress_html(100, "Text ready! Adjust media toggles and click Generate Cards."), generate_cards_html(cards, include_image=False, include_audio=False, placeholder_back=True)
 
 
 def generate_media_async(
@@ -144,7 +196,7 @@ with gr.Blocks() as demo:
                 )
                 cefr_dropdown = gr.Dropdown(
                     label="CEFR Level",
-                    choices=["A0", "A1", "A2", "B1", "B2", "C1", "C2"],
+                    choices=["A0", "A1", "A2", "B1", "B2"],
                     value="B1",
                     elem_id="cefr-dropdown",
                 )

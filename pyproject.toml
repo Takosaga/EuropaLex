@@ -7,6 +7,7 @@ dependencies = [
     "diffusers>=0.28.0",
     "gradio>=4.0.0",
     "huggingface-hub>=1.18.0",
+    "llama-cpp-python>=0.3.28",
     "omnivoice>=0.1.0",
     "pydantic>=2.0.0",
     "pyyaml>=6.0",
@@ -20,3 +21,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["core", "export", "frontend", "models"]
+
+[tool.uv.pip]
+extra-index-url = ["https://abetlen.github.io/llama-cpp-python/whl/cu130"]
