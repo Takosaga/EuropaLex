@@ -105,6 +105,126 @@ def test_dot_numbering_with_paren_format():
     assert result[0] == "First."
 
 
+def test_generate_sentences_success():
+    """generate_sentences returns clean sentences on first try."""
+    from unittest.mock import MagicMock
+    from core.text_gen import generate_sentences
+    from core.types import CEFRLevel
+
+    mock_llm = MagicMock()
+    mock_llm.create_chat_completion.return_value = {
+        "choices": [{"message": {"content": "1. Hello world.\n2. Goodbye world."}}]
+    }
+
+    result = generate_sentences(
+        scenario="greetings",
+        cefr_level=CEFRLevel.A1,
+        batch_size=2,
+        llm=mock_llm,
+    )
+    assert len(result) == 2
+    assert result[0] == "Hello world."
+    assert result[1] == "Goodbye world."
+
+
+def test_generate_sentences_retry_on_count_mismatch():
+    """generate_sentences retries when LLM returns wrong count."""
+    from unittest.mock import MagicMock, call
+    from core.text_gen import generate_sentences, ValidationError
+    from core.types import CEFRLevel
+
+    mock_llm = MagicMock()
+    # First call returns too few sentences (1 instead of 2)
+    mock_llm.create_chat_completion.side_effect = [
+        {"choices": [{"message": {"content": "1. Only one sentence."}}]},
+        {"choices": [{"message": {"content": "1. Hello world.\n2. Goodbye world."}}]},
+    ]
+
+    result = generate_sentences(
+        scenario="greetings",
+        cefr_level=CEFRLevel.A1,
+        batch_size=2,
+        llm=mock_llm,
+    )
+    assert len(result) == 2
+    # Verify retry was called (2 calls total)
+    assert mock_llm.create_chat_completion.call_count == 2
+
+
+def test_generate_sentences_fallback_after_exhausted_retries():
+    """generate_sentences returns truncated fallback after 3 failed attempts."""
+    from unittest.mock import MagicMock
+    from core.text_gen import generate_sentences, ValidationError
+    from core.types import CEFRLevel
+
+    mock_llm = MagicMock()
+    # Always return wrong count (always fewer than expected)
+    mock_llm.create_chat_completion.side_effect = [
+        {"choices": [{"message": {"content": "1. Only one."}}]},
+        {"choices": [{"message": {"content": "2. Second attempt only."}}]},
+        {"choices": [{"message": {"content": "3. Final attempt.\n4. Also this one.\n5. Too many but some will be discarded noise\n6. Another valid."}}]},
+    ]
+
+    result = generate_sentences(
+        scenario="greetings",
+        cefr_level=CEFRLevel.A1,
+        batch_size=2,
+        llm=mock_llm,
+    )
+    # Should return fallback (first 2 valid lines from last attempt, discarding line without terminal punctuation)
+    assert len(result) == 2
+    assert result[0] == "Final attempt."
+    assert result[1] == "Also this one."
+
+
+def test_generate_sentences_with_thinking_tags():
+    """generate_sentences handles LLM output containing thinking tags."""
+    from unittest.mock import MagicMock
+    from core.text_gen import generate_sentences
+    from core.types import CEFRLevel
+
+    mock_llm = MagicMock()
+    mock_llm.create_chat_completion.return_value = {
+        "choices": [{
+            "message": {
+                "content": "<thinking>Let me think about this\nThe scenario is greetings</thinking>\n1. Hello there.\n2. How are you?"
+            }
+        }]
+    }
+
+    result = generate_sentences(
+        scenario="greetings",
+        cefr_level=CEFRLevel.A1,
+        batch_size=2,
+        llm=mock_llm,
+    )
+    assert len(result) == 2
+    assert result[0] == "Hello there."
+    assert result[1] == "How are you?"
+
+
+def test_generate_sentences_with_questions():
+    """generate_sentences handles question sentences."""
+    from unittest.mock import MagicMock
+    from core.text_gen import generate_sentences
+    from core.types import CEFRLevel
+
+    mock_llm = MagicMock()
+    mock_llm.create_chat_completion.return_value = {
+        "choices": [{"message": {"content": "1. What is your name?\n2. Where do you live?"}}]
+    }
+
+    result = generate_sentences(
+        scenario="introductions",
+        cefr_level=CEFRLevel.A1,
+        batch_size=2,
+        llm=mock_llm,
+    )
+    assert len(result) == 2
+    assert result[0] == "What is your name?"
+    assert result[1] == "Where do you live?"
+
+
 if __name__ == "__main__":
     test_exact_count()
     print("test_exact_count: PASS")
@@ -126,4 +246,14 @@ if __name__ == "__main__":
     print("test_dot_numbering_format: PASS")
     test_dot_numbering_with_paren_format()
     print("test_dot_numbering_with_paren_format: PASS")
-    print("\nAll extract_sentences tests passed.")
+    test_generate_sentences_success()
+    print("test_generate_sentences_success: PASS")
+    test_generate_sentences_retry_on_count_mismatch()
+    print("test_generate_sentences_retry_on_count_mismatch: PASS")
+    test_generate_sentences_fallback_after_exhausted_retries()
+    print("test_generate_sentences_fallback_after_exhausted_retries: PASS")
+    test_generate_sentences_with_thinking_tags()
+    print("test_generate_sentences_with_thinking_tags: PASS")
+    test_generate_sentences_with_questions()
+    print("test_generate_sentences_with_questions: PASS")
+    print("\nAll tests passed.")
