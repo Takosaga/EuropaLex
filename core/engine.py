@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
@@ -11,7 +12,7 @@ import numpy as np
 import soundfile as sf
 import torch
 
-from core.types import CEFRLevel, EngineConfig, TextResult
+from core.types import CEFRLevel, EngineConfig, TextResult, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ class MiniCPMTextEngine:
     """Generates English text using MiniCPM5-1B Q8_0 via llama-cpp-python.
 
     Lazy-loads the model on first call, unloads after completion to free memory.
-    Uses MiniCPM5-1B's built-in chat template (apply_chat_template) for prompt formatting.
+    Uses create_chat_completion to format prompts with MiniCPM's required message tokens.
     Only one instance can be active at a time (enforced by EnginePool).
 
     Best for Phase 1 English text generation — ~1.1 GB RAM, no subprocess overhead.
@@ -77,9 +78,9 @@ class MiniCPMTextEngine:
     def generate(self, texts: list[str], scenario: str, cefr_level: CEFRLevel, batch_size: int | None = None) -> TextResult:
         """Generate English sentences using the loaded GGUF model.
 
-        Validates that output contains exactly batch_size sentences. Retries with a
-        stricter prompt on mismatch (max 3 total attempts). Raises RuntimeError if
-        all attempts fail.
+        Uses the ``TextResult.validate_and_parse()`` gate to strip thinking tags
+        and enforce exact sentence count. Retries with a stricter prompt on mismatch
+        (max 3 total attempts). Raises ValidationError if all attempts fail.
 
         Args:
             texts: Empty list (generation mode). Non-empty would be translation mode.
@@ -91,18 +92,21 @@ class MiniCPMTextEngine:
             TextResult with exactly one sentence per requested batch size.
 
         Raises:
-            RuntimeError: If generation fails after max attempts.
+            ValidationError: If generation fails after max attempts.
         """
         self._load_model()
         if batch_size is None:
             raise ValueError("batch_size is required for text generation")
 
-        messages = [
+        # Keep a fresh copy of the base messages for each attempt so retries
+        # don't accumulate stale reasoning from previous failed turns.
+        _base_messages = [
             {
                 "role": "system",
                 "content": (
                     "You are a language teacher. Generate simple, clear sentences at the specified CEFR level "
-                    "about the given scenario. Output ONE sentence per line, no numbering or explanations."
+                    "about the given scenario. Output ONE sentence per line, no numbering or explanations. "
+                    "DO NOT use any reasoning or thinking tags — just output the raw sentences."
                 ),
             },
             {
@@ -111,7 +115,7 @@ class MiniCPMTextEngine:
                     f"Generate {batch_size} simple sentences at CEFR level {cefr_level.value}\n"
                     f"about the following scenario. Output ONE sentence per line, no numbering.\n"
                     f"Scenario: {scenario}\n"
-                    "Output ONLY the sentences, one per line. No explanations."
+                    "Output ONLY the sentences, one per line. No explanations. DO NOT use any reasoning tags."
                 ),
             },
         ]
@@ -120,6 +124,8 @@ class MiniCPMTextEngine:
         last_raw_output = ""
 
         for attempt in range(1, max_attempts + 1):
+            # Start each attempt with the base messages + any retry history
+            messages = list(_base_messages)
             output = self._llm.create_chat_completion(
                 messages=messages,
                 max_tokens=512,
@@ -128,42 +134,41 @@ class MiniCPMTextEngine:
 
             raw_text = output["choices"][0]["message"]["content"]
             last_raw_output = raw_text
-            lines = [line.strip() for line in raw_text.strip().split("\n") if line.strip()]
 
-            if self._validate_lines(lines, batch_size):
+            # Use the validation gate: strips thinking tags, splits lines,
+            # enforces exact count — all in one call.
+            try:
+                result = TextResult.validate_and_parse(raw_text, expected_count=batch_size)
                 logger.debug(
                     "MiniCPMTextEngine: got %d/%d sentences on attempt %d",
-                    len(lines), batch_size, attempt,
+                    len(result.generated_texts), batch_size, attempt,
                 )
-                return TextResult(translations=lines)
+                return result
+            except ValidationError as e:
+                # Count mismatch — append the model's (possibly bad) assistant
+                # turn plus a stricter retry prompt so the conversation context
+                # stays valid for the next attempt.
+                # Re-count after stripping thinking tags
+                stripped = re.sub(r"<thinking>.*?</thinking>", "", raw_text, flags=re.DOTALL).strip()
+                actual_count = len([l for l in stripped.split("\n") if l.strip()])
+                messages.append({
+                    "role": "assistant",
+                    "content": raw_text,
+                })
+                messages.append({
+                    "role": "user",
+                    "content": self._build_retry_prompt(actual_count, batch_size),
+                })
+                logger.warning(
+                    "MiniCPMTextEngine attempt %d: got %d sentences, expected %d — retrying",
+                    attempt, actual_count, batch_size,
+                )
 
-            # Mismatch — build retry prompt and append as new user message
-            messages.append({
-                "role": "user",
-                "content": self._build_retry_prompt(len(lines), batch_size),
-            })
-            logger.warning(
-                "MiniCPMTextEngine attempt %d: got %d sentences, expected %d — retrying",
-                attempt, len(lines), batch_size,
-            )
-
-        # Exhausted all retries
-        raise RuntimeError(
-            f"Failed to generate exactly {batch_size} sentences after {max_attempts} attempts. "
-            f"Last output: {last_raw_output!r}"
+        # Exhausted all retries — raise structured error with raw output for debugging
+        raise ValidationError(
+            f"Failed to generate exactly {batch_size} sentences after {max_attempts} attempts.",
+            raw_output=last_raw_output,
         )
-
-    def _validate_lines(self, lines: list[str], expected: int) -> bool:
-        """Return True if line count matches expected batch size.
-
-        Args:
-            lines: Non-empty, stripped lines from LLM output.
-            expected: The number of sentences we asked for (batch_size).
-
-        Returns:
-            True if len(lines) == expected.
-        """
-        return len(lines) == expected
 
     def _build_retry_prompt(self, actual: int, expected: int) -> str:
         """Build a stricter prompt referencing the count mismatch.
@@ -273,7 +278,7 @@ class LlamaCppTextEngine:
 
         text = output.get("choices", [{}])[0].get("text", "")
         lines = [line.strip() for line in text.strip().split("\n") if line.strip()]
-        return TextResult(translations=lines)
+        return TextResult(generated_texts=lines)
 
     def _build_translation_prompt(self, texts: list[str], cefr_level: CEFRLevel) -> str:
         """Build prompt for translation."""
@@ -365,7 +370,7 @@ class TTSEngine:
                 logger.error("TTS failed for text '%s': %s", text[:50], e)
                 audio_paths.append(None)
 
-        return AudioResult(audio_paths=audio_paths)
+        return AudioResult(audio_paths=list(audio_paths))
 
     def unload(self) -> None:
         """Unload the model and free GPU memory."""
@@ -451,7 +456,7 @@ class ImageGenEngine:
                 logger.error("Image generation failed for prompt '%s': %s", prompt[:50], e)
                 image_paths.append(None)
 
-        return ImageResult(image_paths=image_paths)
+        return ImageResult(image_paths=list(image_paths))
 
     def unload(self) -> None:
         """Unload the pipeline and free GPU memory."""

@@ -129,12 +129,12 @@ User Input → [Gradio UI] → EnginePool (singleton) → MiniCPMTextEngine/TTS/
 ```
 
 - **Inference:** `core/engine.py` defines five engine classes:
-  - `MiniCPMTextEngine` — llama-cpp-python wrapper for MiniCPM5-1B Q8_0 (lazy-load/unload, ~1.1 GB RAM, uses apply_chat_template). Validates output sentence count against `batch_size`; retries with stricter prompts on mismatch (max 3 attempts). Used in Phase 1 for English text generation only.
+  - `MiniCPMTextEngine` — llama-cpp-python wrapper for MiniCPM5-1B Q8_0 (lazy-load/unload, ~1.1 GB RAM, uses apply_chat_template). Uses `TextResult.validate_and_parse()` to strip `<thinking>` tags and enforce exact sentence count; retries with stricter prompts on mismatch (max 3 attempts). Used in Phase 1 for English text generation only.
   - `LlamaCppTextEngine` — llama-cpp-python wrapper for tiny-aya-water translation (lazy-load/unload, ~2 GB VRAM). Used in Phase 2 for translation.
   - `TTSEngine` — OmniVoice Python package with lazy-load/unload cycle (GPU memory managed by EnginePool). Used in Phase 2 for TTS audio.
   - `ImageGenEngine` — diffusers Flux2KleinPipeline with lazy-load/unload cycle (GPU memory managed by EnginePool). Used in Phase 2 for images.
   - `EnginePool` — singleton orchestrator enforcing mutual exclusion between all GPU engines. Phase 1 uses only `MiniCPMTextEngine` (~1.1 GB RAM). Phase 2 loads GPU engines sequentially: translation → TTS/images.
-- **Types:** `core/types.py` provides Pydantic models (`CardData`, `CEFRLevel`, `TextResult`, `AudioResult`, `ImageResult`, `EngineConfig`) for type-safe boundaries.
+- **Types:** `core/types.py` provides Pydantic models (`CardData`, `CEFRLevel`, `ValidationError`, `TextResult`, `AudioResult`, `ImageResult`, `EngineConfig`) for type-safe boundaries. `TextResult.generated_texts` replaces the legacy `.translations`; `AudioResult.audio_paths` and `ImageResult.image_paths` are `list[str | None]` (never None at top level).
 - **Pipeline:** `core/pipeline.py` orchestrates batch generation — text first, then audio and images in parallel based on toggle state.
 - **Frontend:** `frontend/ui/cards.py` renders individual cards as HTML with conditional media elements; `generate_cards_html()` layouts them in a flex gallery with natural rotation offsets.
 - **Export:** `export/apkg_generator.py` builds Anki packages; `export/csv_export.py` writes tabular data; `export/anki_tunnel.py` communicates with the Anki MCP tunnel server.
