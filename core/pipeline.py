@@ -54,16 +54,19 @@ def generate_phase2(
     yield 20, "Preparing translation...", []
 
     try:
-        texts_result = pool.get_translation_engine().generate(
-            texts=texts,
-            scenario=scenario,
-            cefr_level=cefr_level,
-            batch_size=batch_size,
-        )
+        engine = pool.get_translation_engine()
+        translations: list[str] = []
+        total = len(texts)
+
+        for i, text in enumerate(texts):
+            translated = engine._translate_single(text, cefr_level)
+            translations.append(translated)
+            # Stream progress after each sentence (15% base + per-sentence increment up to 55%)
+            progress = 15 + int((i + 1) / total * 55)
+            yield progress, f"Translating... ({i + 1}/{total})", []
+
     except ValidationError:
         raise
-
-    yield 60, "Translating...", []
 
     cards = [
         CardData(
@@ -73,7 +76,7 @@ def generate_phase2(
             image_path=None,
             cefr_level=cefr_level,
         )
-        for text, translation in zip(texts, texts_result.generated_texts)
+        for text, translation in zip(texts, translations)
     ]
 
     yield 100, "Translation complete!", cards

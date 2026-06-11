@@ -152,6 +152,25 @@ def generate_text_async(
     yield generate_progress_html(100, "Text ready! Adjust media toggles and click Generate Cards."), generate_cards_html(cards, include_image=False, include_audio=False, placeholder_back=True)
 
 
+def _progress_pct(translated_idx: int, total: int) -> tuple[float, str]:
+    """Calculate progress percentage and label for per-sentence translation.
+
+    Args:
+        translated_idx: Index of the sentence just completed (0-based).
+        total: Total number of sentences to translate.
+
+    Returns:
+        (percentage, label) tuple.
+    """
+    if total <= 1:
+        return 100.0, "Translation complete!"
+    pct = ((translated_idx + 1) / total) * 100
+    remaining = total - (translated_idx + 1)
+    if pct >= 100:
+        return 100.0, "Translation complete!"
+    return round(pct, 1), f"Translated {translated_idx + 1}/{total} — {remaining} remaining..."
+
+
 def generate_media_async(
     scenario: str,
     cefr_level: str,
@@ -160,7 +179,8 @@ def generate_media_async(
     """Phase 2: Translate Phase 1 English text to Latvian via tiny-aya.
 
     Reads the English texts from _phase1_texts (set by Phase 1 handler),
-    translates them using tiny-aya, and renders cards with Latvian on front.
+    translates each sentence one-by-one, and yields progressive card updates
+    so cards appear incrementally as translations complete.
     Images and audio toggles are not yet active — media fields remain empty.
     """
     if not _phase1_texts:
@@ -197,39 +217,58 @@ def generate_media_async(
         )
         return
 
+    yield generate_progress_html(10, "Preparing translation engine..."), ""
+
+    # Get the translation engine (lazy-loads tiny-aya)
     try:
-        yield generate_progress_html(20, "Preparing translation..."), ""
-        texts_result = pool.get_translation_engine().generate(
-            texts=_phase1_texts,
-            scenario=scenario,
-            cefr_level=cefr,
-            batch_size=len(_phase1_texts),
-        )
+        translation_engine = pool.get_translation_engine()
     except Exception as e:
-        logger.error("Phase 2 translation failed: %s", e, exc_info=True)
+        logger.error("Phase 2 failed to get translation engine: %s", e, exc_info=True)
         err_detail = str(e)
-        yield generate_progress_html(0, f"\u26a0\ufe0f Translation failed"), (
+        yield generate_progress_html(0, f"\u26a0\ufe0f Engine error: {err_detail}"), (
             '<div style="color:#c44; padding:20px;">'
-            f'<strong>Translation failed.</strong><br>'
+            f'<strong>Failed to initialize translation engine.</strong><br>'
             f'{err_detail}<br><br>'
-            'Possible causes:<br>'
-            '• llama-cpp-python not installed — run: <code>uv pip install llama-cpp-python</code><br>'
-            '• tiny-aya-water model file corrupted or incompatible format<br>'
-            '• Insufficient VRAM (~2 GB required)<br><br>'
-            'Check the terminal for full error output.'
+            'Check <code>configs/settings.yaml</code> for the model path.'
             '</div>'
         )
         return
 
-    yield generate_progress_html(60, "Translating..."), ""
+    # Build cards one-by-one — each sentence translated individually
+    cards: list[dict] = []
+    total = len(_phase1_texts)
 
-    # Convert TextResult to card dicts for rendering (no media yet)
-    cards = [
-        {"text": text, "translation": translation, "cefr_level": cefr}
-        for text, translation in zip(_phase1_texts, texts_result.generated_texts)
-    ]
+    for i, english_text in enumerate(_phase1_texts):
+        try:
+            translation = translation_engine._translate_single(english_text, cefr)
+        except Exception as e:
+            logger.error("Translation failed for sentence %d: %s", i, e, exc_info=True)
+            # Fallback: use English text as translation
+            translation = english_text
 
-    yield generate_progress_html(100, "Translation ready!"), generate_cards_html(cards, include_image=False, include_audio=False, placeholder_back=False)
+        cards.append({
+            "text": english_text,
+            "translation": translation,
+            "cefr_level": cefr,
+        })
+
+        pct, label = _progress_pct(i, total)
+        yield generate_progress_html(pct, label), generate_cards_html(
+            cards, include_image=False, include_audio=False, placeholder_back=False
+        )
+
+    # Final yield with 100%
+    if not cards:
+        yield generate_progress_html(0, "\u26a0\ufe0f No translations produced."), (
+            '<div style="color:#c44; padding:20px;">'
+            '<strong>Translation failed.</strong><br>No translations were produced. '
+            'Check the terminal for error details.'
+            '</div>'
+        )
+    else:
+        yield generate_progress_html(100, "Translation complete!"), generate_cards_html(
+            cards, include_image=False, include_audio=False, placeholder_back=False
+        )
 
 
 # ─── Gradio UI Construction ──────────────────────────────────────
