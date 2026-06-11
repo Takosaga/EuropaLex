@@ -116,7 +116,7 @@ EuropaLex is organized into five main modules:
 
 | Module | Purpose |
 |---|---|
-| `core/` | Data types (`types.py`), inference engines (`engine.py`), sentence extraction & generation helpers (`text_gen.py`), batch pipeline orchestrator (`pipeline.py`) |
+| `core/` | Data types (`types.py`), inference engines (`engine.py`), sentence extraction & generation helpers (`text_gen.py`), Phase 2 placeholder (`pipeline.py`) |
 | `frontend/` | Gradio 6 UI: styled toggles (`widgets.py`), card rendering with two-phase layout (`cards.py`), custom CSS (`css/custom.css`) |
 | `models/` | Hugging Face Hub model downloader — fetches models at runtime, no git submodules |
 | `export/` | `.apkg` Anki package generator, CSV export, Anki tunnel sync via MCP server |
@@ -135,7 +135,7 @@ User Input → [Gradio UI] → EnginePool (singleton) → MiniCPMTextEngine/TTS/
   - `ImageGenEngine` — diffusers Flux2KleinPipeline with lazy-load/unload cycle (GPU memory managed by EnginePool). Used in Phase 2 for images.
   - `EnginePool` — singleton orchestrator enforcing mutual exclusion between all GPU engines. Phase 1 uses only `MiniCPMTextEngine` (~1.1 GB RAM). Phase 2 loads GPU engines sequentially: translation → TTS/images.
 - **Types:** `core/types.py` provides Pydantic models (`CardData`, `CEFRLevel`, `ValidationError`, `TextResult`, `AudioResult`, `ImageResult`, `EngineConfig`) for type-safe boundaries. `TextResult.generated_texts` replaces the legacy `.translations`; `AudioResult.audio_paths` and `ImageResult.image_paths` are `list[str | None]` (never None at top level).
-- **Pipeline:** `core/pipeline.py` orchestrates batch generation — text first, then audio and images in parallel based on toggle state.
+- **Pipeline:** `core/pipeline.py` is a Phase 2 placeholder — currently empty. Will orchestrate batch generation (text → audio + images) when implemented.
 - **Frontend:** `frontend/ui/cards.py` renders individual cards as HTML with conditional media elements; `generate_cards_html()` layouts them in a flex gallery with natural rotation offsets.
 - **Export:** `export/apkg_generator.py` builds Anki packages; `export/csv_export.py` writes tabular data; `export/anki_tunnel.py` communicates with the Anki MCP tunnel server.
 
@@ -155,7 +155,7 @@ EuropaLex/
 │   ├── types.py            # Pydantic models: CardData, CEFRLevel, TextResult, AudioResult, ImageResult, EngineConfig
 │   ├── engine.py           # MiniCPMTextEngine (MiniCPM5-1B/llama-cpp-python), LlamaCppTextEngine (tiny-aya/llama-cpp-python), TTSEngine (OmniVoice), ImageGenEngine (diffusers), EnginePool singleton
 │   ├── text_gen.py         # Sentence extraction (extract_sentences) and generation with retry loop (generate_sentences)
-│   └── pipeline.py         # Batch generator: text → audio → image orchestrator
+│   └── pipeline.py         # Phase 2 placeholder — keep empty until implementation
 ├── frontend/               # Gradio 6 UI
 │   ├── __init__.py
 │   ├── ui/
