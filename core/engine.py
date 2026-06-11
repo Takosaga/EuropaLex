@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-import subprocess
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
@@ -12,7 +12,7 @@ import numpy as np
 import soundfile as sf
 import torch
 
-from core.types import CEFRLevel, EngineConfig, TextResult
+from core.types import CEFRLevel, EngineConfig, TextResult, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -26,84 +26,93 @@ class _EngineState:
     image_engine: ImageGenEngine | None = None
 
 
-class TextEngine:
-    """Generates text using llama-cli subprocess with Nemotron or TildeOpen.
+class MiniCPMTextEngine:
+    """Generates English text using MiniCPM5-1B Q8_0 via llama-cpp-python.
 
-    Each call spawns a fresh subprocess — no model persists in memory between calls.
+    Lazy-loads the model on first call, unloads after completion to free memory.
+    Uses create_chat_completion to format prompts with MiniCPM's required message tokens.
+    Only one instance can be active at a time (enforced by EnginePool).
+
+    Best for Phase 1 English text generation — ~1.1 GB RAM, no subprocess overhead.
     """
 
     def __init__(self, model_path: str, device: str = "cuda"):
         """Initialize the text engine.
 
         Args:
-            model_path: Absolute path to the GGUF model file.
-            device: Device hint passed to llama-cli (informational; -ngl 99 used).
+            model_path: Absolute path to the MiniCPM5-1B Q8_0 GGUF file.
+            device: Device hint ('cuda', 'mps', or 'cpu').
         """
         self.model_path = Path(model_path)
         if not self.model_path.exists():
-            raise FileNotFoundError(f"Model not found: {self.model_path}")
+            raise FileNotFoundError(
+                f"MiniCPM5-1B model not found at: {self.model_path}\n"
+                f"Run: python models/download_models.py minicpm"
+            )
         self.device = device
+        self._llm = None
+        self._loaded = False
+
+    def _load_model(self) -> None:
+        """Lazy-load the GGUF model via llama-cpp-python."""
+        if self._loaded:
+            return
+
+        try:
+            from llama_cpp import Llama
+        except ImportError:
+            raise ImportError(
+                "llama-cpp-python package not installed. "
+                "Run: pip install llama-cpp-python"
+            )
+
+        n_gpu = 99 if self.device == "cuda" else 0
+        self._llm = Llama(
+            model_path=str(self.model_path),
+            n_gpu_layers=n_gpu,
+            n_ctx=4096,
+        )
+        self._loaded = True
+        logger.info("MiniCPMTextEngine loaded %s on %s", self.model_path.name, self.device)
 
     def generate(self, texts: list[str], scenario: str, cefr_level: CEFRLevel, batch_size: int | None = None) -> TextResult:
-        """Generate text using llama-cli.
+        """Generate English sentences using the loaded GGUF model.
+
+        Delegates to :func:`core.text_gen.generate_sentences` for LLM calling,
+        retry loop, and extraction. Wraps result in ``TextResult``.
 
         Args:
-            texts: English sentences to translate (for TildeOpen) or empty list (for Nemotron).
-            scenario: Scenario/topic description for Nemotron text generation.
+            texts: Empty list (generation mode). Non-empty would be translation mode.
+            scenario: Scenario/topic description for text generation.
             cefr_level: CEFR proficiency level.
-            batch_size: Number of sentences to generate (Nemotron mode only).
+            batch_size: Number of sentences to generate.
 
         Returns:
-            TextResult with one translation/sentence per input or generated item.
+            TextResult with exactly one sentence per requested batch size.
 
         Raises:
-            RuntimeError: If llama-cli subprocess exits with non-zero status.
+            ValidationError: If generation fails after max attempts.
         """
-        if texts:
-            prompt = self._build_translation_prompt(texts, scenario, cefr_level)
-        else:
-            prompt = self._build_generation_prompt(scenario, cefr_level, batch_size or 3)
+        self._load_model()
+        if batch_size is None:
+            raise ValueError("batch_size is required for text generation")
 
-        result = subprocess.run(
-            [
-                "llama-cli",
-                "-m", str(self.model_path),
-                "-p", prompt,
-                "-n", "512",
-                "--temp", "0.7",
-                "-ngl", "99",
-                "--no-mmap",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
+        from core.text_gen import generate_sentences
 
-        if result.returncode != 0:
-            raise RuntimeError(f"llama-cli failed (exit {result.returncode}): {result.stderr}")
+        sentences = generate_sentences(scenario, cefr_level, batch_size, self._llm)
+        return TextResult(generated_texts=sentences)
 
-        lines = [line.strip() for line in result.stdout.strip().split("\n") if line.strip()]
-        return TextResult(translations=lines)
-
-    def _build_translation_prompt(self, texts: list[str], scenario: str, cefr_level: CEFRLevel) -> str:
-        """Build prompt for TildeOpen translation."""
-        text_lines = "\n".join(texts)
-        target_lang = "Latvian"  # Default; can be parameterized later
-        return (
-            f"You are a translator. Translate the following {cefr_level.value} English text into {target_lang}.\n"
-            f"Translate these sentences, one per line, in order:\n"
-            f"{text_lines}\n"
-            "Output ONLY the translations, one per line. No explanations."
-        )
-
-    def _build_generation_prompt(self, scenario: str, cefr_level: CEFRLevel, batch_size: int) -> str:
-        """Build prompt for Nemotron text generation."""
-        return (
-            f"You are a language teacher. Generate {batch_size} simple sentences at CEFR level {cefr_level.value}\n"
-            f"about the following scenario. Output ONE sentence per line, no numbering.\n"
-            f"Scenario: {scenario}\n"
-            "Output ONLY the sentences, one per line. No explanations."
-        )
+    def unload(self) -> None:
+        """Unload the model and free memory."""
+        if self._llm is not None:
+            del self._llm
+            self._llm = None
+            self._loaded = False
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
+            logger.info("MiniCPMTextEngine unloaded")
 
 
 class LlamaCppTextEngine:
@@ -180,7 +189,7 @@ class LlamaCppTextEngine:
 
         text = output.get("choices", [{}])[0].get("text", "")
         lines = [line.strip() for line in text.strip().split("\n") if line.strip()]
-        return TextResult(translations=lines)
+        return TextResult(generated_texts=lines)
 
     def _build_translation_prompt(self, texts: list[str], cefr_level: CEFRLevel) -> str:
         """Build prompt for translation."""
@@ -272,7 +281,7 @@ class TTSEngine:
                 logger.error("TTS failed for text '%s': %s", text[:50], e)
                 audio_paths.append(None)
 
-        return AudioResult(audio_paths=audio_paths)
+        return AudioResult(audio_paths=list(audio_paths))
 
     def unload(self) -> None:
         """Unload the model and free GPU memory."""
@@ -358,7 +367,7 @@ class ImageGenEngine:
                 logger.error("Image generation failed for prompt '%s': %s", prompt[:50], e)
                 image_paths.append(None)
 
-        return ImageResult(image_paths=image_paths)
+        return ImageResult(image_paths=list(image_paths))
 
     def unload(self) -> None:
         """Unload the pipeline and free GPU memory."""
@@ -425,14 +434,15 @@ class EnginePool:
             cls._instance._unload_image()
             cls._instance = None
 
-    def get_english_engine(self) -> TextEngine:
-        """Get a fresh English text generation engine (Nemotron).
+    def get_english_engine(self) -> MiniCPMTextEngine:
+        """Get a fresh English text generation engine (MiniCPM5-1B).
 
-        Clears any active GPU engines before returning.
+        Unloads any active GPU engines before returning.
+        Returns a new MiniCPMTextEngine instance each call (stateless after unload).
         """
         self._ensure_exclusive("text")
-        return TextEngine(
-            model_path=self._config.nemotron_model_path,
+        return MiniCPMTextEngine(
+            model_path=self._config.minicpm_model_path,
             device=self._config.device,
         )
 
@@ -478,6 +488,7 @@ class EnginePool:
             self._unload_translation()
             self._unload_tts()
             self._unload_image()
+            self._unload_english()
         elif target == "translation":
             self._unload_tts()
             self._unload_image()
@@ -505,3 +516,12 @@ class EnginePool:
         if self._state.image_engine is not None:
             self._state.image_engine.unload()
             self._state.image_engine = None
+
+    def _unload_english(self) -> None:
+        """Unload the English text engine if active."""
+        # MiniCPMTextEngine instances are per-call (stateless), but we track
+        # any loaded model state to ensure clean GPU memory.
+        try:
+            torch.cuda.empty_cache()
+        except Exception:
+            pass

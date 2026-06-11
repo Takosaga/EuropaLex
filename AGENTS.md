@@ -12,7 +12,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 - Python 3.12+
 - Gradio 6 (frontend UI)
 - Pydantic >=2.0.0 (type-safe data models)
-- llama-cli (text generation: Nemotron-3-Nano, GGUF format)
+- llama-cpp-python (text generation: MiniCPM5-1B Q8_0, GGUF format)
 - llama-cpp-python (translation: tiny-aya-water Q4_K_M, GGUF format)
 - omnivoice (PyPI package, lazy-load/unload via EnginePool)
 - diffusers >=0.28.0 (image gen: FLUX.2-klein 4B, lazy-load/unload via EnginePool)
@@ -23,7 +23,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 **Models:**
 | Model | Repo | Runtime | Role |
 |---|---|---|---|
-| Nemotron-3-Nano 30B-A3B IQ4_XS | [bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF](https://huggingface.co/bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF) | llama-cli | English text generation (Phase 1) |
+| MiniCPM5-1B Q8_0 | [Abiray/MiniCPM5-1B-GGUF](https://huggingface.co/Abiray/MiniCPM5-1B-GGUF) | llama-cpp-python | English text generation (Phase 1) |
 | tiny-aya-water Q4_K_M | [CohereLabs/tiny-aya-water-GGUF](https://huggingface.co/CohereLabs/tiny-aya-water-GGUF) | llama-cpp-python | Translation (active) |
 | TildeOpen-30b Q4_K_S ⚠️ | [bartowski/TildeAI_TildeOpen-30b-GGUF](https://huggingface.co/bartowski/TildeAI_TildeOpen-30b-GGUF) | llama-cli | Translation (available, not active) |
 | OmniVoice Q8_0 | [Serveurperso/OmniVoice-GGUF](https://huggingface.co/Serveurperso/OmniVoice-GGUF) | omnivoice.cpp | Text-to-speech |
@@ -32,7 +32,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 > ⚠️ TildeOpen is still downloaded and available but not the active translation model. See `configs/settings.yaml` to switch back.
 
 **Architecture at a glance:**
-- `core/` — Pydantic types (`types.py`), five engine classes + EnginePool singleton (`engine.py`), batch pipeline (`pipeline.py`)
+- `core/` — Pydantic types (`types.py`), inference engines + EnginePool singleton (`engine.py`), sentence extraction & generation helpers (`text_gen.py`), batch pipeline (`pipeline.py`)
 - `frontend/` — Gradio UI: widgets, card rendering, custom CSS
 - `models/` — HF Hub model downloader
 - `export/` — .apkg generator, CSV export, Anki tunnel sync
@@ -45,6 +45,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 | Module | Do | Don't |
 |---|---|---|
 | `core/` | Define types, implement inference protocols, orchestrate batch pipelines | Import from `frontend/` or `export/` |
+| `core/text_gen.py` | Sentence extraction (`extract_sentences`) and LLM generation with retry loop (`generate_sentences`) | Import from other modules for text generation logic |
 | `frontend/` | Render UI, handle Gradio events, style cards | Implement inference logic or export formats |
 | `models/` | Download and locate models | Run inference or generate content |
 | `export/` | Generate .apkg, .csv, communicate with Anki tunnel | Import from `frontend/` |
@@ -69,7 +70,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 ### Naming
 
 - **Modules (lowercase, underscore):** `apkg_generator`, `anki_tunnel`, `download_models`
-- **Classes (PascalCase):** `CardData`, `CEFRLevel`, `TextEngine`, `LlamaCppTextEngine`, `TTSEngine`, `ImageGenEngine`, `EnginePool`, `InferenceEngine` (legacy protocol)
+- **Classes (PascalCase):** `CardData`, `CEFRLevel`, `MiniCPMTextEngine`, `LlamaCppTextEngine`, `TTSEngine`, `ImageGenEngine`, `EnginePool`, `ValidationError`
 - **Functions/variables (snake_case):** `render_card_html`, `generate_cards_html`, `batch_size`
 - **Constants (UPPER_SNAKE_CASE):** None currently needed; keep config in YAML
 
@@ -83,12 +84,12 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 ### Data Flow Through the App
 
 ```
-User input → app.py click handler → EnginePool.get(config) → TextEngine/TTSEngine/ImageGenEngine → frontend/ui/cards.py rendering → Gradio output
+User input → app.py click handler → EnginePool.get(config) → MiniCPMTextEngine (Phase 1) → LlamaCppTextEngine (translation, Phase 2) → TTSEngine/ImageGenEngine (media, Phase 2) → frontend/ui/cards.py rendering → Gradio output
 ```
 
 When adding a new feature, follow this chain. Don't bypass `pipeline.py` — even single-card generation should go through it for consistency.
 
-**EnginePool singleton:** Manages mutual exclusion between all GPU engines: `LlamaCppTextEngine` (translation, ~2 GB VRAM), `TTSEngine` (TTS), and `ImageGenEngine` (images). Only one can be loaded at a time. `TextEngine` is subprocess-based with no persistent VRAM.
+**EnginePool singleton:** Manages mutual exclusion between all GPU engines: `MiniCPMTextEngine` (~1.1 GB RAM), `LlamaCppTextEngine` (translation, ~2 GB VRAM), `TTSEngine` (TTS), and `ImageGenEngine` (images). Only one can be loaded at a time.
 
 ## Frontend Patterns
 
@@ -123,16 +124,16 @@ All card HTML goes through `frontend/ui/cards.py`:
 
 The UI operates in two distinct phases:
 
-**Phase 1 — Generate Text:**
+**Phase 1 — Generate English Text:**
 1. User clicks "Generate Text"
-2. `app.py` calls the text generation handler → Nemotron generates English sentences, then tiny-aya-water translates them
+2. `app.py` calls the text generation handler → MiniCPM5-1B (`MiniCPMTextEngine`, llama-cpp-python, lazy-load/unload) generates English sentences from the scenario
 3. Cards render with English on the front, placeholder back (dashed line)
 4. After completion, `_enable_phase2()` removes disabled CSS and enables toggles + "Generate Cards" button
 
-**Phase 2 — Generate Media:**
+**Phase 2 — Generate Translation + Media (deferred):**
 1. User toggles Images/Audio on/off
 2. User clicks "Generate Cards"
-3. `app.py` calls the media generation handler → OmniVoice (TTS) + FLUX.2 (images) fill in media
+3. `app.py` calls the media generation handler → tiny-aya-water (`LlamaCppTextEngine`) translates, then OmniVoice (TTS) + FLUX.2 (images) fill in media
 4. Cards update: translation appears on the front, image and audio controls appear with it; English text moves to the back
 5. Both buttons hide during generation, reappear when done
 
@@ -168,9 +169,10 @@ class CardData(BaseModel):
 
 Other Pydantic models:
 - `CEFRLevel(str, Enum)` — A0 through C2 proficiency levels
-- `TextResult` — `{translations: list[str]}` from text generation
-- `AudioResult` — `{audio_paths: list[str]}` from TTS
-- `ImageResult` — `{image_paths: list[str]}` from image generation
+- `ValidationError(RuntimeError)` — `{raw_output: str | None}` structured error for LLM output validation failures (carries raw model output)
+- `TextResult` — `{generated_texts: list[str] = Field(default_factory=list)}` from text generation; use classmethod `validate_and_parse(raw_text, expected_count=N)` to strip `<thinking>` tags and enforce count in one call
+- `AudioResult` — `{audio_paths: list[str | None] = Field(default_factory=list)}` from TTS (individual failures tracked as `None`)
+- `ImageResult` — `{image_paths: list[str | None] = Field(default_factory=list)}` from image generation (individual failures tracked as `None`)
 - `EngineConfig(BaseModel)` — validated config from `configs/settings.yaml`
 
 ### engine.py
@@ -179,17 +181,18 @@ Five concrete engine classes replace the legacy `InferenceEngine` protocol:
 
 | Class | Backend | Lifecycle |
 |---|---|---|
-| `TextEngine` | llama-cli subprocess | Stateless — spawns fresh process per `.generate()` call |
-| `LlamaCppTextEngine` | llama-cpp-python (GGUF) | Lazy-load on first `.generate()`, unload after completion (~2 GB VRAM) |
-| `TTSEngine` | omnivoice (PyTorch) | Lazy-load on first `.synthesize()`, unload after completion |
-| `ImageGenEngine` | diffusers Flux2KleinPipeline (PyTorch) | Lazy-load on first `.generate()`, unload after completion |
-| `EnginePool` | Singleton factory | Manages mutual exclusion between all GPU engines |
+| `MiniCPMTextEngine` | llama-cpp-python (GGUF) | Lazy-load on first `.generate()`, unload after completion (~1.1 GB RAM). Uses `apply_chat_template`. Validates output sentence count against `batch_size`; retries with stricter prompts on mismatch (max 3 attempts). Used in Phase 1 for English text generation. |
+| `LlamaCppTextEngine` | llama-cpp-python (GGUF) | Lazy-load on first `.generate()`, unload after completion (~2 GB VRAM). Used in Phase 2 for translation. |
+| `TTSEngine` | omnivoice (PyTorch) | Lazy-load on first `.synthesize()`, unload after completion. Used in Phase 2 for TTS audio. |
+| `ImageGenEngine` | diffusers Flux2KleinPipeline (PyTorch) | Lazy-load on first `.generate()`, unload after completion. Used in Phase 2 for images. |
+| `EnginePool` | Singleton factory | Manages mutual exclusion between all GPU engines. Phase 1 uses only `MiniCPMTextEngine` (~1.1 GB RAM). Phase 2 loads GPU engines sequentially: translation → TTS/images. |
 
 **Rules:**
 - All inference goes through `EnginePool.get(config)` — never instantiate engines directly in app code.
-- GPU engines (LlamaCppTextEngine, TTSEngine, ImageGenEngine) are lazy-loaded and unloaded via `del` + `torch.cuda.empty_cache()`.
-- Text engines (`TextEngine`) spawn subprocesses — no persistent VRAM consumption.
+- All engines (MiniCPMTextEngine, LlamaCppTextEngine, TTSEngine, ImageGenEngine) are lazy-loaded and unloaded via `del` + `torch.cuda.empty_cache()`.
 - Each engine class should be self-contained. Don't share state between implementations.
+
+**MiniCPMTextEngine validation:** `generate()` wraps the LLM call in a retry loop (max 3 attempts). Each attempt uses `TextResult.validate_and_parse(raw_text, expected_count=batch_size)` as its validation gate — stripping `<thinking>` tags, splitting lines, and enforcing exact count in one call. On mismatch, `_build_retry_prompt()` constructs a stricter prompt referencing the actual vs expected count, appended as a new user message in the same conversation context. On exhaustion, raises `ValidationError` with `raw_output` attached for debugging. Do not bypass this loop — it is the contract enforcement layer between LLM output and `TextResult`.
 
 ### pipeline.py
 
@@ -215,9 +218,13 @@ The frontend can render cards from mock data (no model inference needed). When t
 - Use `frontend/ui/cards.py:render_card_html()` directly with a dict like `{"text": "Hello", "translation": "Sveiki"}`
 - The card renderer handles missing fields gracefully — `translation` defaults to empty string, `audio_path`/`image_path` are ignored in HTML rendering.
 
+### Inline Tests
+
+For new modules with non-trivial logic, add a test script in `scripts/` guarded by `if __name__ == "__main__":`. See `scripts/test_count_enforcement.py` as an example — it tests `TextResult.validate_and_parse()` (thinking-tag stripping, line-count enforcement) and retry-prompt logic without requiring model inference.
+
 ### No Unit Test Framework Required (Yet)
 
-The project currently uses smoke tests only. If you add a new module with non-trivial logic (>30 lines of business logic), consider adding inline assertions or a simple test function at the bottom of the file guarded by `if __name__ == "__main__":`.
+The project currently uses smoke tests and inline tests. If you add a new module with non-trivial logic (>30 lines of business logic), consider adding inline assertions or a simple test function at the bottom of the file guarded by `if __name__ == "__main__":`.
 
 ## Adding New Features
 
@@ -290,3 +297,7 @@ Gradio's default styles use `!important` heavily. Our `custom.css` also uses `!i
 ### 5. Model paths are runtime-resolved
 
 Models live in a configurable directory (default: `.local/models/`, see `configs/settings.yaml`). Never hard-code model file paths. Always resolve paths via the settings config or `models/download_models.py`. Each model has its own runtime engine — don't assume llama-cli can run all GGUF files.
+
+### 6. LLM output may not match expected count
+
+`MiniCPMTextEngine.generate()` validates sentence count against `batch_size` and retries automatically (max 3 attempts). Do **not** slice output with `[:batch_size]` as a band-aid — the engine already handles this via `TextResult.validate_and_parse()` + retry loop. If you bypass the engine and call the LLM directly, you must implement the same validation logic.
