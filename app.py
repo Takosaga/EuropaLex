@@ -179,6 +179,7 @@ def generate_media_async(
     scenario: str,
     cefr_level: str,
     batch_size: int,
+    target_language: str = "Latvian",
 ):
     """Phase 2: Translate Phase 1 English text to Latvian via tiny-aya.
 
@@ -245,7 +246,9 @@ def generate_media_async(
     for i, english_text in enumerate(_phase1_texts):
         try:
             translation = translation_engine._translate_single(
-                english_text, cefr, topic_description=scenario
+                english_text, cefr,
+                topic_description=scenario,
+                target_language=target_language,
             )
         except Exception as e:
             logger.error("Translation failed for sentence %d: %s", i, e, exc_info=True)
@@ -311,6 +314,12 @@ with gr.Blocks() as demo:
                     label="Number of Cards",
                     elem_id="batch-slider",
                 )
+                language_dropdown = gr.Dropdown(
+                    label="Target Language",
+                    choices=["Latvian", "Spanish", "French", "German", "Polish", "Italian", "Portuguese", "Finnish"],
+                    value="Latvian",
+                    elem_id="language-dropdown",
+                )
 
             # Phase 1 button: Generate Text
             generate_text_btn = gr.Button("Generate Text", elem_id="generate-btn")
@@ -347,12 +356,12 @@ with gr.Blocks() as demo:
         for result in generate_text_async(scenario, cefr_level, batch_size):
             yield result
 
-    def _handle_media_generation(scenario, cefr_level, batch_size):
+    def _handle_media_generation(scenario, cefr_level, batch_size, target_language):
         """Wrapper for generate_media_async that handles empty scenario and missing Phase 1 texts."""
         if not scenario.strip():
             yield generate_progress_html(0, "⚠️ Please enter a scenario or topic."), '<div style="color:#c44; padding:20px;">Please enter a scenario or topic to generate cards.</div>'
             return
-        for result in generate_media_async(scenario, cefr_level, batch_size):
+        for result in generate_media_async(scenario, cefr_level, batch_size, target_language):
             yield result
 
     def _enable_phase2():
@@ -387,7 +396,7 @@ with gr.Blocks() as demo:
 
     generate_cards_btn.click(
         fn=_handle_media_generation,
-        inputs=[scenario_input, cefr_dropdown, batch_slider],
+        inputs=[scenario_input, cefr_dropdown, batch_slider, language_dropdown],
         outputs=[progress_html, card_output],
     ).then(
         fn=lambda: (gr.Button(visible=False), gr.Button(visible=False)),
@@ -399,6 +408,7 @@ with gr.Blocks() as demo:
     scenario_input.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css])
     cefr_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css])
     batch_slider.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css])
+    language_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css])
 
 
 if __name__ == "__main__":

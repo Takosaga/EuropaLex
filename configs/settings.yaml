@@ -1,6 +1,10 @@
 # EuropaLex Settings
 # Model paths, batch size defaults, CEFR levels, language configuration
 
+# Target language for translation (Phase 2)
+# Choose from: Latvian, Spanish, French, German, Polish, Italian, Portuguese, Finnish
+target_language: Latvian
+
 models:
   directory: .local/models
   minicpm:
