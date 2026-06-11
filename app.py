@@ -124,6 +124,7 @@ def generate_text_async(
             scenario=scenario,
             cefr_level=cefr,
             batch_size=batch_size,
+            topic_description=scenario,  # user's free-form topic description
         )
     except Exception as e:
         logger.error("Phase 1 generation failed: %s", e, exc_info=True)
@@ -146,7 +147,10 @@ def generate_text_async(
     _phase1_texts = list(texts.generated_texts)
 
     # Convert TextResult to card dicts for rendering
-    cards = [{"text": t, "translation": "", "cefr_level": cefr} for t in texts.generated_texts]
+    cards = [
+        {"text": t, "translation": "", "cefr_level": cefr, "topic_description": scenario}
+        for t in texts.generated_texts
+    ]
 
     yield generate_progress_html(60, "Generating text..."), ""
     yield generate_progress_html(100, "Text ready! Adjust media toggles and click Generate Cards."), generate_cards_html(cards, include_image=False, include_audio=False, placeholder_back=True)
@@ -240,7 +244,9 @@ def generate_media_async(
 
     for i, english_text in enumerate(_phase1_texts):
         try:
-            translation = translation_engine._translate_single(english_text, cefr)
+            translation = translation_engine._translate_single(
+                english_text, cefr, topic_description=scenario
+            )
         except Exception as e:
             logger.error("Translation failed for sentence %d: %s", i, e, exc_info=True)
             # Fallback: use English text as translation
@@ -250,6 +256,7 @@ def generate_media_async(
             "text": english_text,
             "translation": translation,
             "cefr_level": cefr,
+            "topic_description": scenario,
         })
 
         pct, label = _progress_pct(i, total)

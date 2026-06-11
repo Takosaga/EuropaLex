@@ -75,7 +75,14 @@ class MiniCPMTextEngine:
         self._loaded = True
         logger.info("MiniCPMTextEngine loaded %s on %s", self.model_path.name, self.device)
 
-    def generate(self, texts: list[str], scenario: str, cefr_level: CEFRLevel, batch_size: int | None = None) -> TextResult:
+    def generate(
+        self,
+        texts: list[str],
+        scenario: str,
+        cefr_level: CEFRLevel,
+        batch_size: int | None = None,
+        topic_description: str = "",
+    ) -> TextResult:
         """Generate English sentences using the loaded GGUF model.
 
         Delegates to :func:`core.text_gen.generate_sentences` for LLM calling,
@@ -84,8 +91,9 @@ class MiniCPMTextEngine:
         Args:
             texts: Empty list (generation mode). Non-empty would be translation mode.
             scenario: Scenario/topic description for text generation.
-            cefr_level: CEFR proficiency level.
+            cefr_level: CEFR proficiency level (linguistic guidance only).
             batch_size: Number of sentences to generate.
+            topic_description: Free-form description of topics/themes.
 
         Returns:
             TextResult with exactly one sentence per requested batch size.
@@ -99,7 +107,7 @@ class MiniCPMTextEngine:
 
         from core.text_gen import generate_sentences
 
-        sentences = generate_sentences(scenario, cefr_level, batch_size, self._llm)
+        sentences = generate_sentences(scenario, cefr_level, batch_size, self._llm, topic_description)
         return TextResult(generated_texts=sentences)
 
     def unload(self) -> None:
@@ -162,7 +170,7 @@ class LlamaCppTextEngine:
         self._loaded = True
         logger.info("LlamaCppTextEngine loaded %s on %s", self.model_path.name, self.device)
 
-    def _translate_single(self, text: str, cefr_level: CEFRLevel) -> str:
+    def _translate_single(self, text: str, cefr_level: CEFRLevel, topic_description: str = "") -> str:
         """Translate a single English sentence into Latvian with retry loop.
 
         Uses ``create_chat_completion`` so the model's chat template (with
@@ -174,7 +182,8 @@ class LlamaCppTextEngine:
 
         Args:
             text: Single English sentence to translate.
-            cefr_level: CEFR proficiency level.
+            cefr_level: CEFR proficiency level (linguistic guidance only).
+            topic_description: Free-form description of topics/themes (for context).
 
         Returns:
             Translated Latvian string, or the original English text as fallback.
@@ -275,7 +284,14 @@ class LlamaCppTextEngine:
 
         return True
 
-    def generate(self, texts: list[str], scenario: str, cefr_level: CEFRLevel, batch_size: int | None = None) -> TextResult:
+    def generate(
+        self,
+        texts: list[str],
+        scenario: str,
+        cefr_level: CEFRLevel,
+        batch_size: int | None = None,
+        topic_description: str = "",
+    ) -> TextResult:
         """Generate translations using the loaded GGUF model.
 
         Translates each sentence individually for better quality with small models.
@@ -283,9 +299,10 @@ class LlamaCppTextEngine:
 
         Args:
             texts: English sentences to translate.
-            scenario: Scenario/topic description (not used with this model).
-            cefr_level: CEFR proficiency level.
+            scenario: Scenario/topic description (contextual).
+            cefr_level: CEFR proficiency level (linguistic guidance only).
             batch_size: Number of translations expected.
+            topic_description: Free-form description of topics/themes (contextual).
 
         Returns:
             TextResult with one translation per input text.
@@ -299,26 +316,29 @@ class LlamaCppTextEngine:
 
         translations = []
         for text in texts:
-            translated = self._translate_single(text, cefr_level)
+            translated = self._translate_single(text, cefr_level, topic_description)
             translations.append(translated)
 
         return TextResult(generated_texts=translations)
 
-    def _build_single_translation_prompt(self, text: str, cefr_level: CEFRLevel) -> str:
+    def _build_single_translation_prompt(self, text: str, cefr_level: CEFRLevel, topic_description: str = "") -> str:
         """Build prompt for translating a single sentence.
 
         Optimized for small models (tiny-aya-water ~3.3B params): short,
         explicit, with strong constraints against repetition and hallucination.
+        Uses CEFR linguistic guidance only — no hardcoded topics.
         """
         target_lang = "Latvian"
+        cefr_desc = cefr_level.description()
+        topic_hint = f" Context: {topic_description}." if topic_description else ""
         return (
-            f"Translate the following English sentence into {target_lang}.\n"
-            f"CEFR level: {cefr_level.value}.\n\n"
+            f"Translate the following English sentence into {target_lang}.{topic_hint}\n"
+            f"CEFR linguistic guidance: {cefr_desc}.\n\n"
             f"Rules:\n"
             f"1. Output ONLY the translated sentence — one line, nothing else.\n"
             f"2. Do NOT include explanations, notes, or labels.\n"
             f"3. Do NOT repeat the English text in your output.\n"
-            f"4. Use simple, natural {target_lang} for {cefr_level.value} learners.\n\n"
+            f"4. Match the CEFR linguistic complexity for the target level.\n\n"
             f"English: {text}\n"
             f"{target_lang}:"
         )
