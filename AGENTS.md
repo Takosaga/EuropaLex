@@ -32,11 +32,11 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 > ⚠️ TildeOpen is still downloaded and available but not the active translation model. See `configs/settings.yaml` to switch back.
 
 **Architecture at a glance:**
-- `core/` — Pydantic types (`types.py`), inference engines + EnginePool singleton (`engine.py`), sentence extraction & generation helpers (`text_gen.py`), Phase 2 placeholder (`pipeline.py`)
+- `core/` — Pydantic types (`types.py`), inference engines + EnginePool singleton (`engine.py`), sentence extraction & generation helpers (`text_gen.py`), Phase 2 translation orchestration (`pipeline.py`)
 - `frontend/` — Gradio UI: widgets, card rendering, custom CSS
 - `models/` — HF Hub model downloader
 - `export/` — .apkg generator, CSV export, Anki tunnel sync
-- `app.py` — entry point, wires everything together (uses mock data until engines are fully integrated)
+- `app.py` — entry point, wires everything together (Phase 1 generates English text via MiniCPM; Phase 2 translates via tiny-aya)
 
 ## Code Structure
 
@@ -44,7 +44,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 
 | Module | Do | Don't |
 |---|---|---|
-| `core/` | Define types, implement inference protocols, Phase 2 placeholder (`pipeline.py`) | Import from `frontend/` or `export/` |
+| `core/` | Define types, implement inference protocols, Phase 2 translation orchestration (`pipeline.py`) | Import from `frontend/` or `export/` |
 | `core/text_gen.py` | Sentence extraction (`extract_sentences`) and LLM generation with retry loop (`generate_sentences`) | Import from other modules for text generation logic |
 | `frontend/` | Render UI, handle Gradio events, style cards | Implement inference logic or export formats |
 | `models/` | Download and locate models | Run inference or generate content |
@@ -53,7 +53,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 
 ### File Organization Rules
 
-1. **One responsibility per file.** `cards.py` renders cards. `widgets.py` creates form controls. `pipeline.py` is a Phase 2 placeholder — keep it empty until ready.
+1. **One responsibility per file.** `cards.py` renders cards. `widgets.py` creates form controls. `pipeline.py` is the Phase 2 translation orchestration layer — extend it when adding new media types (TTS, images).
 2. **`__init__.py` files are minimal.** Just package markers — no imports, no logic.
 3. **UI components live in `frontend/ui/`.** Not in `app.py`. If a widget or renderer grows beyond ~100 lines, consider whether it needs its own file.
 4. **CSS lives in `frontend/css/custom.css`.** Inline styles are acceptable in card HTML (for portability when rendered as strings), but theme-level rules go in the CSS file.
@@ -84,10 +84,10 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 ### Data Flow Through the App
 
 ```
-User input → app.py click handler → EnginePool.get(config) → MiniCPMTextEngine (Phase 1) → LlamaCppTextEngine (translation, Phase 2) → TTSEngine/ImageGenEngine (media, Phase 2) → frontend/ui/cards.py rendering → Gradio output
+User input → app.py click handler → EnginePool.get(config) → MiniCPMTextEngine (Phase 1) → pipeline.generate_phase2() → LlamaCppTextEngine (translation, Phase 2) → TTSEngine/ImageGenEngine (media, future) → frontend/ui/cards.py rendering → Gradio output
 ```
 
-When adding a new feature, follow this chain. Phase 1 uses `MiniCPMTextEngine` directly; Phase 2 will move to `pipeline.py` when implemented.
+When adding a new feature, follow this chain. Phase 1 uses `MiniCPMTextEngine` directly; Phase 2 translation goes through `pipeline.generate_phase2()`.
 
 **EnginePool singleton:** Manages mutual exclusion between all GPU engines: `MiniCPMTextEngine` (~1.1 GB RAM), `LlamaCppTextEngine` (translation, ~2 GB VRAM), `TTSEngine` (TTS), and `ImageGenEngine` (images). Only one can be loaded at a time.
 
@@ -182,7 +182,7 @@ Five concrete engine classes replace the legacy `InferenceEngine` protocol:
 | Class | Backend | Lifecycle |
 |---|---|---|
 | `MiniCPMTextEngine` | llama-cpp-python (GGUF) | Lazy-load on first `.generate()`, unload after completion (~1.1 GB RAM). Uses `apply_chat_template`. Validates output sentence count against `batch_size`; retries with stricter prompts on mismatch (max 3 attempts). Used in Phase 1 for English text generation. |
-| `LlamaCppTextEngine` | llama-cpp-python (GGUF) | Lazy-load on first `.generate()`, unload after completion (~2 GB VRAM). Used in Phase 2 for translation. |
+| `LlamaCppTextEngine` | llama-cpp-python (GGUF) | Lazy-load on first `.generate()`, unload after completion (~2 GB VRAM). Validates output line count against `batch_size`; retries with stricter prompts on mismatch (max 3 attempts). Used in Phase 2 for translation. |
 | `TTSEngine` | omnivoice (PyTorch) | Lazy-load on first `.synthesize()`, unload after completion. Used in Phase 2 for TTS audio. |
 | `ImageGenEngine` | diffusers Flux2KleinPipeline (PyTorch) | Lazy-load on first `.generate()`, unload after completion. Used in Phase 2 for images. |
 | `EnginePool` | Singleton factory | Manages mutual exclusion between all GPU engines. Phase 1 uses only `MiniCPMTextEngine` (~1.1 GB RAM). Phase 2 loads GPU engines sequentially: translation → TTS/images. |
@@ -194,13 +194,16 @@ Five concrete engine classes replace the legacy `InferenceEngine` protocol:
 
 **MiniCPMTextEngine validation:** `generate()` wraps the LLM call in a retry loop (max 3 attempts). Each attempt uses `TextResult.validate_and_parse(raw_text, expected_count=batch_size)` as its validation gate — stripping `<thinking>` tags, splitting lines, and enforcing exact count in one call. On mismatch, `_build_retry_prompt()` constructs a stricter prompt referencing the actual vs expected count, appended as a new user message in the same conversation context. On exhaustion, raises `ValidationError` with `raw_output` attached for debugging. Do not bypass this loop — it is the contract enforcement layer between LLM output and `TextResult`.
 
+**LlamaCppTextEngine validation:** `generate()` wraps the LLM call in a retry loop (max 3 attempts). If output line count does not match `batch_size`, `_build_retry_prompt()` constructs a stricter prompt referencing actual vs expected count. On exhaustion with zero lines, raises `ValidationError` with `raw_output`; on exhaustion with partial lines, returns whatever was produced. Do not bypass this loop.
+
 ### pipeline.py
 
-Placeholder — currently empty. Phase 2 (translation + media) orchestration lives in `app.py` click handlers and will be migrated here when implemented. **Rules:**
-- Keep the file empty until Phase 2 implementation begins.
-- When ready, the pipeline will receive a list of texts and produce batches of (text, audio, image) outputs based on toggle state.
-- Pipeline will become the single point of parallelism control. If adding new media types, add them there first.
-- Will use generator functions (`yield`) for streaming progress updates — Gradio consumes generators for real-time UI updates.
+Phase 2 translation orchestration layer. Provides `generate_phase2()` as a generator function that yields `(progress_percent, phase_label, cards)` tuples.
+
+**Rules:**
+- Extend this file when adding new media types (TTS, images). The pipeline is the single point of parallelism control.
+- All Phase 2 translation logic flows through `generate_phase2()` — do not duplicate engine calls in `app.py`.
+- Uses generator functions (`yield`) for streaming progress updates — Gradio consumes generators for real-time UI updates.
 
 ## Testing Expectations
 
@@ -219,6 +222,10 @@ Expected output: clean exit (no traceback). If it fails, something is broken at 
 The frontend can render cards from mock data (no model inference needed). When testing UI changes:
 - Use `frontend/ui/cards.py:render_card_html()` directly with a dict like `{"text": "Hello", "translation": "Sveiki"}`
 - The card renderer handles missing fields gracefully — `translation` defaults to empty string, `audio_path`/`image_path` are ignored in HTML rendering.
+
+### Inline Tests for Engine Retry Logic
+
+For engine classes with retry loops, add inline tests that mock the LLM and verify count validation. See `scripts/test_translation_retry.py` as an example — it tests `LlamaCppTextEngine.generate()` retry logic (exact count, short output, exhausted retries, empty output) without requiring a running model.
 
 ### Inline Tests
 
@@ -302,4 +309,4 @@ Models live in a configurable directory (default: `.local/models/`, see `configs
 
 ### 6. LLM output may not match expected count
 
-`MiniCPMTextEngine.generate()` validates sentence count against `batch_size` and retries automatically (max 3 attempts). Do **not** slice output with `[:batch_size]` as a band-aid — the engine already handles this via `TextResult.validate_and_parse()` + retry loop. If you bypass the engine and call the LLM directly, you must implement the same validation logic.
+Both `MiniCPMTextEngine.generate()` and `LlamaCppTextEngine.generate()` validate output count against `batch_size` and retry automatically (max 3 attempts). Do **not** slice output with `[:batch_size]` as a band-aid — the engines already handle this via retry loops. If you bypass an engine and call an LLM directly, you must implement the same validation logic.
