@@ -32,7 +32,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 > ⚠️ TildeOpen is still downloaded and available but not the active translation model. See `configs/settings.yaml` to switch back.
 
 **Architecture at a glance:**
-- `core/` — Pydantic types (`types.py`), five engine classes + EnginePool singleton (`engine.py`), batch pipeline (`pipeline.py`)
+- `core/` — Pydantic types (`types.py`), inference engines + EnginePool singleton (`engine.py`), sentence extraction & generation helpers (`text_gen.py`), batch pipeline (`pipeline.py`)
 - `frontend/` — Gradio UI: widgets, card rendering, custom CSS
 - `models/` — HF Hub model downloader
 - `export/` — .apkg generator, CSV export, Anki tunnel sync
@@ -45,6 +45,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 | Module | Do | Don't |
 |---|---|---|
 | `core/` | Define types, implement inference protocols, orchestrate batch pipelines | Import from `frontend/` or `export/` |
+| `core/text_gen.py` | Sentence extraction (`extract_sentences`) and LLM generation with retry loop (`generate_sentences`) | Import from other modules for text generation logic |
 | `frontend/` | Render UI, handle Gradio events, style cards | Implement inference logic or export formats |
 | `models/` | Download and locate models | Run inference or generate content |
 | `export/` | Generate .apkg, .csv, communicate with Anki tunnel | Import from `frontend/` |
