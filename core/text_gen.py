@@ -94,21 +94,15 @@ def generate_sentences(
                 "about the given scenario. Number each sentence 1 to N, one per line. "
                 f"Generate AT LEAST {batch_size} numbered sentences — more is acceptable.\n"
                 "\n"
-                "IMPORTANT OUTPUT FORMAT:\n"
-                "- ONLY output numbered lines starting with a digit followed by a dot or paren: 1. 2. 3) etc.\n"
-                "- Each sentence on its own line.\n"
-                "- NO explanations, NO reasoning tags (<thinking>), NO extra text before or after the list.\n"
-                "- The system will ONLY read lines that start with a number — everything else is ignored.\n"
+                "VARIETY REQUIREMENT: Each sentence must cover a different aspect or sub-topic of the scenario. "
+                "Do NOT repeat similar ideas. Mix sentence types (statements, questions, exclamations). "
+                "Use diverse vocabulary and sentence structures — avoid starting multiple sentences the same way.\n"
                 "\n"
-                "Correct example:\n"
+                "OUTPUT FORMAT: ONLY output numbered lines (1., 2., 3.) — one sentence per line. No explanations, no extra text.\n"
+                "\n"
+                "Example:\n"
                 "1. The cat sits on the mat.\n"
-                "2. It drinks milk from a bowl.\n"
-                "3. The sun is shining outside.\n"
-                "\n"
-                "Wrong example (DO NOT do this):\n"
-                "Here are some sentences about cats:\n"
-                "<thinking>Let me think...</thinking>\n"
-                "The cat sits on the mat.  ← not numbered, will be ignored!"
+                "2. It drinks milk from a bowl."
             ),
         },
         {
@@ -117,11 +111,11 @@ def generate_sentences(
                 f"Generate simple sentences at CEFR level {cefr_level.value}\n"
                 f"about the following scenario. Number each sentence 1 to N, one per line.\n"
                 f"Generate AT LEAST {batch_size} sentences — more is acceptable.\n"
+                "IMPORTANT: Make each sentence about a DIFFERENT aspect of the scenario. "
+                "Use varied vocabulary and structures — no repetitive patterns.\n"
                 f"Scenario: {scenario}\n"
                 "\n"
-                "Output ONLY the numbered sentences like:\n"
-                "1. First sentence here.\n"
-                "2. Second sentence here."
+                "Output ONLY the numbered sentences, one per line. No other text."
             ),
         },
     ]

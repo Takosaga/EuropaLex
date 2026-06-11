@@ -196,7 +196,7 @@ with gr.Blocks() as demo:
                 )
                 cefr_dropdown = gr.Dropdown(
                     label="CEFR Level",
-                    choices=["A0", "A1", "A2", "B1", "B2", "C1", "C2"],
+                    choices=["A0", "A1", "A2", "B1", "B2"],
                     value="B1",
                     elem_id="cefr-dropdown",
                 )

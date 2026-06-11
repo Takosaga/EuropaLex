@@ -5,22 +5,95 @@ from __future__ import annotations
 import re
 from enum import Enum
 from pathlib import Path
-from typing import ClassVar
-
 import yaml
 from pydantic import BaseModel, Field
 
 
 class CEFRLevel(str, Enum):
-    """CEFR proficiency levels supported by EuropaLex."""
+    """CEFR proficiency levels supported by EuropaLex.
+
+    Each level carries a description suitable for prompt generation and UI display.
+    See https://www.coe.int/en/web/common-european-framework-reference-languages/
+    """
 
     A0 = "A0"
+    """Pre-Entry — No language knowledge yet."""
+
     A1 = "A1"
+    """Beginner — Very simple sentences (3–6 words), present tense only, basic vocabulary.
+    Topics: greetings, family, food, daily routine, immediate needs."""
+
     A2 = "A2"
+    """Elementary — Short sentences (5–8 words), simple past/future introduced.
+    Topics: shopping, directions, weather, personal details, everyday situations."""
+
     B1 = "B1"
+    """Intermediate — Medium sentences (8–12 words), conditionals and relative clauses.
+    Topics: travel, personal interests, opinions, simple connected text."""
+
     B2 = "B2"
+    """Upper-Intermediate — Longer sentences (10–15 words), complex grammar (passives,
+    reported speech). Topics: abstract ideas, arguments, professional contexts."""
+
     C1 = "C1"
+    """Advanced — Long nuanced sentences (12–18+ words), idiomatic language,
+    implicit meaning. Topics: academic, professional, social fluency."""
+
     C2 = "C2"
+    """Mastery — Near-native fluency, highly precise vocabulary, stylistic variation.
+    Topics: literary, technical, native-level comprehension."""
+
+    def label(self) -> str:
+        """Return the short human-readable label (e.g. 'Beginner' for A1)."""
+        labels = {
+            CEFRLevel.A0: "Pre-Entry",
+            CEFRLevel.A1: "Beginner",
+            CEFRLevel.A2: "Elementary",
+            CEFRLevel.B1: "Intermediate",
+            CEFRLevel.B2: "Upper-Intermediate",
+            CEFRLevel.C1: "Advanced",
+            CEFRLevel.C2: "Mastery",
+        }
+        return labels[self]
+
+    def description(self) -> str:
+        """Return the full CEFR description for prompt generation.
+
+        Returns guidance on sentence length, grammar complexity, and
+        recommended topics for the given proficiency level.
+        """
+        descs = {
+            CEFRLevel.A0: "Pre-Entry — No language knowledge yet.",
+            CEFRLevel.A1: (
+                "Beginner — Very simple sentences (3–6 words), present tense only, "
+                "basic vocabulary. Topics: greetings, family, food, daily routine, "
+                "immediate needs."
+            ),
+            CEFRLevel.A2: (
+                "Elementary — Short sentences (5–8 words), simple past/future "
+                "introduced. Topics: shopping, directions, weather, personal details, "
+                "everyday situations."
+            ),
+            CEFRLevel.B1: (
+                "Intermediate — Medium sentences (8–12 words), conditionals and "
+                "relative clauses. Topics: travel, personal interests, opinions, "
+                "simple connected text."
+            ),
+            CEFRLevel.B2: (
+                "Upper-Intermediate — Longer sentences (10–15 words), complex grammar "
+                "(passives, reported speech). Topics: abstract ideas, arguments, "
+                "professional contexts."
+            ),
+            CEFRLevel.C1: (
+                "Advanced — Long nuanced sentences (12–18+ words), idiomatic language, "
+                "implicit meaning. Topics: academic, professional, social fluency."
+            ),
+            CEFRLevel.C2: (
+                "Mastery — Near-native fluency, highly precise vocabulary, stylistic "
+                "variation. Topics: literary, technical, native-level comprehension."
+            ),
+        }
+        return descs[self]
 
 
 class CardData(BaseModel):
