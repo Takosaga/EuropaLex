@@ -90,51 +90,34 @@ class MiniCPMTextEngine:
             RuntimeError: If generation fails.
         """
         self._load_model()
-        prompt = self._build_chat_prompt(scenario, cefr_level, batch_size or 3)
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a language teacher. Generate simple, clear sentences at the specified CEFR level "
+                    "about the given scenario. Output ONE sentence per line, no numbering or explanations."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Generate {batch_size} simple sentences at CEFR level {cefr_level.value}\n"
+                    f"about the following scenario. Output ONE sentence per line, no numbering.\n"
+                    f"Scenario: {scenario}\n"
+                    "Output ONLY the sentences, one per line. No explanations."
+                ),
+            },
+        ]
 
-        output = self._llm(
-            prompt=prompt,
+        output = self._llm.create_chat_completion(
+            messages=messages,
             max_tokens=512,
             temperature=0.7,
-            echo=False,
         )
 
-        text = output.get("choices", [{}])[0].get("text", "")
+        text = output["choices"][0]["message"]["content"]
         lines = [line.strip() for line in text.strip().split("\n") if line.strip()]
         return TextResult(translations=lines)
-
-    def _build_chat_prompt(self, scenario: str, cefr_level: CEFRLevel, batch_size: int) -> str:
-        """Build chat-formatted prompt using the model's built-in template.
-
-        Args:
-            scenario: Scenario/topic description.
-            cefr_level: CEFR proficiency level.
-            batch_size: Number of sentences to generate.
-
-        Returns:
-            Formatted prompt string ready for model inference.
-        """
-        system_msg = {
-            "role": "system",
-            "content": (
-                "You are a language teacher. Generate simple, clear sentences at the specified CEFR level "
-                "about the given scenario. Output ONE sentence per line, no numbering or explanations."
-            ),
-        }
-        user_msg = {
-            "role": "user",
-            "content": (
-                f"Generate {batch_size} simple sentences at CEFR level {cefr_level.value}\n"
-                f"about the following scenario. Output ONE sentence per line, no numbering.\n"
-                f"Scenario: {scenario}\n"
-                "Output ONLY the sentences, one per line. No explanations."
-            ),
-        }
-        return self._llm.apply_chat_template(
-            messages=[system_msg, user_msg],
-            tokenize=False,
-            add_generation_prompt=True,
-        )
 
     def unload(self) -> None:
         """Unload the model and free memory."""

@@ -120,14 +120,15 @@ def generate_text_async(
             cefr_level=cefr,
             batch_size=batch_size,
         )
-    except RuntimeError as e:
-        logger.error("Phase 1 generation failed: %s", e)
+    except Exception as e:
+        logger.error("Phase 1 generation failed: %s", e, exc_info=True)
         err_detail = str(e)
         yield generate_progress_html(0, f"\u26a0\ufe0f Generation failed"), (
             '<div style="color:#c44; padding:20px;">'
             f'<strong>MiniCPM5-1B generation failed.</strong><br>'
             f'{err_detail}<br><br>'
             'Possible causes:<br>'
+            '• llama-cpp-python not installed — run: <code>uv pip install llama-cpp-python</code><br>'
             '• Model file corrupted or incompatible format<br>'
             '• Insufficient VRAM (~1.1 GB required)<br><br>'
             'Check the terminal for full error output.'
