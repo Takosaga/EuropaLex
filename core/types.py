@@ -68,9 +68,10 @@ class TextResult(BaseModel):
         """Validate and parse raw LLM output into a structured TextResult.
 
         Strips any ``<thinking>...</thinking>`` block, splits on newlines,
-        and optionally enforces an exact sentence count. Mirrors the
-        ai-pr-enricher-softmax pattern where a validation gate sits
-        between the raw model response and downstream typed consumers.
+        removes optional numbered prefixes ("1. ", "2. "), and optionally
+        enforces an exact sentence count. Mirrors the ai-pr-enricher-softmax
+        pattern where a validation gate sits between the raw model response
+        and downstream typed consumers.
 
         Args:
             raw_text: Raw string returned by the LLM (may contain thinking tags).
@@ -88,6 +89,9 @@ class TextResult(BaseModel):
         # Strip <thinking>...</thinking> blocks (greedy across newlines)
         cleaned = re.sub(r"<thinking>.*?</thinking>", "", raw_text, flags=re.DOTALL).strip()
         lines = [line.strip() for line in cleaned.split("\n") if line.strip()]
+
+        # Remove optional numbered prefixes: "1. ", "2)", "3) ", etc.
+        lines = [re.sub(r"^\d+[.)]\s*", "", line).strip() for line in lines]
 
         if not lines:
             raise ValidationError(

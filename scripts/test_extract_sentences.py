@@ -8,9 +8,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def test_exact_count():
-    """Extract exactly the expected number of sentences."""
+    """Extract all numbered sentences — no cap."""
     from core.text_gen import extract_sentences
-    result = extract_sentences("1. Hello world.\n2. Goodbye world.", 2)
+    result = extract_sentences("1. Hello world.\n2. Goodbye world.")
     assert len(result) == 2
     assert result[0] == "Hello world."
     assert result[1] == "Goodbye world."
@@ -20,7 +20,7 @@ def test_thinking_tag_stripping():
     """Strip <thinking> tags before parsing."""
     from core.text_gen import extract_sentences
     raw = "<thinking>some thoughts\nmore thoughts</thinking>\n1. Sentence one.\n2. Sentence two."
-    result = extract_sentences(raw, 2)
+    result = extract_sentences(raw)
     assert len(result) == 2
     assert result[0] == "Sentence one."
     assert result[1] == "Sentence two."
@@ -30,7 +30,7 @@ def test_questions_and_exclamations():
     """Handle sentences ending with ? and ! as valid."""
     from core.text_gen import extract_sentences
     raw = "1. Hello.\n2. How are you?\n3. What a day!"
-    result = extract_sentences(raw, 3)
+    result = extract_sentences(raw)
     assert len(result) == 3
     assert result[0] == "Hello."
     assert result[1] == "How are you?"
@@ -41,7 +41,7 @@ def test_mixed_punctuation_with_thinking():
     """Strip tags and handle mixed . ? ! endings."""
     from core.text_gen import extract_sentences
     raw = "<thinking>reasoning here</thinking>\n1. The cat sits.\n2. Is it hungry?\n3. It wants food!"
-    result = extract_sentences(raw, 3)
+    result = extract_sentences(raw)
     assert len(result) == 3
     assert result[0] == "The cat sits."
     assert result[1] == "Is it hungry?"
@@ -49,41 +49,40 @@ def test_mixed_punctuation_with_thinking():
 
 
 def test_too_few_raises_validationerror():
-    """Raise ValidationError if fewer than expected_count valid items."""
+    """Raise ValidationError if zero numbered sentences found."""
     from core.text_gen import extract_sentences, ValidationError
     try:
-        extract_sentences("1. Only one.", 3)
+        extract_sentences("No numbered lines here.\nJust plain text.")
         assert False, "Should raise ValidationError"
     except ValidationError:
         pass
 
 
-def test_too_many_truncates():
-    """Take first expected_count when more are provided."""
+def test_all_kept_no_truncation():
+    """All numbered sentences are kept — no upper cap."""
     from core.text_gen import extract_sentences
-    result = extract_sentences("1. First.\n2. Second.\n3. Third.", 2)
-    assert len(result) == 2
+    result = extract_sentences("1. First.\n2. Second.\n3. Third.")
+    assert len(result) == 3
     assert result[0] == "First."
     assert result[1] == "Second."
+    assert result[2] == "Third."
 
 
-def test_discards_lines_without_terminal_punctuation():
-    """Discard lines that don't end with . ? or !."""
-    from core.text_gen import extract_sentences, ValidationError
-    # "incomplete line" has no terminal punctuation — should be discarded
-    raw = "1. Valid sentence.\n2. Incomplete line\n3. Another valid."
-    try:
-        extract_sentences(raw, 3)
-        assert False, "Should raise — only 2 valid items after discarding"
-    except ValidationError:
-        pass
+def test_ignores_non_numbered_lines():
+    """Non-numbered lines are silently ignored, not discarded."""
+    from core.text_gen import extract_sentences
+    raw = "Some intro text.\n1. Valid sentence.\nMore text.\n2. Another valid."
+    result = extract_sentences(raw)
+    assert len(result) == 2
+    assert result[0] == "Valid sentence."
+    assert result[1] == "Another valid."
 
 
 def test_empty_after_tag_stripping_raises():
     """Raise if raw text contains only thinking tags."""
     from core.text_gen import extract_sentences, ValidationError
     try:
-        extract_sentences("<thinking>only reasoning</thinking>", 1)
+        extract_sentences("<thinking>only reasoning</thinking>")
         assert False, "Should raise on empty output"
     except ValidationError:
         pass
@@ -92,17 +91,25 @@ def test_empty_after_tag_stripping_raises():
 def test_dot_numbering_format():
     """Handle numbered format with dot (1. 2. 3.)."""
     from core.text_gen import extract_sentences
-    result = extract_sentences("1. First.\n2. Second.", 2)
+    result = extract_sentences("1. First.\n2. Second.")
     assert len(result) == 2
     assert result[0] == "First."
 
 
-def test_dot_numbering_with_paren_format():
+def test_paren_numbering_format():
     """Handle numbered format with paren (1) 2) 3)."""
     from core.text_gen import extract_sentences
-    result = extract_sentences("1) First.\n2) Second.", 2)
+    result = extract_sentences("1) First.\n2) Second.")
     assert len(result) == 2
     assert result[0] == "First."
+
+
+def test_uncapped_extraction():
+    """Extract many sentences without limit."""
+    from core.text_gen import extract_sentences
+    raw = "\n".join(f"{i}. Sentence number {i}." for i in range(1, 21))
+    result = extract_sentences(raw)
+    assert len(result) == 20
 
 
 def test_generate_sentences_success():
@@ -127,54 +134,71 @@ def test_generate_sentences_success():
     assert result[1] == "Goodbye world."
 
 
-def test_generate_sentences_retry_on_count_mismatch():
-    """generate_sentences retries when LLM returns wrong count."""
+def test_generate_sentences_uncapped():
+    """generate_sentences extracts all numbered sentences — no cap."""
+    from unittest.mock import MagicMock
+    from core.text_gen import generate_sentences
+    from core.types import CEFRLevel
+
+    mock_llm = MagicMock()
+    mock_llm.create_chat_completion.return_value = {
+        "choices": [{"message": {"content": "1. First.\n2. Second.\n3. Third.\n4. Fourth."}}]
+    }
+
+    result = generate_sentences(
+        scenario="test",
+        cefr_level=CEFRLevel.A1,
+        batch_size=2,
+        llm=mock_llm,
+    )
+    assert len(result) == 4  # All extracted, not truncated to batch_size
+
+
+def test_generate_sentences_retry_on_fewer_than_batch():
+    """generate_sentences retries when fewer than batch_size sentences."""
     from unittest.mock import MagicMock, call
     from core.text_gen import generate_sentences, ValidationError
     from core.types import CEFRLevel
 
     mock_llm = MagicMock()
-    # First call returns too few sentences (1 instead of 2)
+    # First call returns only 1 sentence (batch_size=3)
     mock_llm.create_chat_completion.side_effect = [
         {"choices": [{"message": {"content": "1. Only one sentence."}}]},
-        {"choices": [{"message": {"content": "1. Hello world.\n2. Goodbye world."}}]},
+        {"choices": [{"message": {"content": "2. Second.\n3. Third.\n4. Fourth."}}]},
     ]
 
     result = generate_sentences(
         scenario="greetings",
         cefr_level=CEFRLevel.A1,
-        batch_size=2,
+        batch_size=3,
         llm=mock_llm,
     )
-    assert len(result) == 2
+    assert len(result) == 3  # Retry gave us enough
     # Verify retry was called (2 calls total)
     assert mock_llm.create_chat_completion.call_count == 2
 
 
 def test_generate_sentences_fallback_after_exhausted_retries():
-    """generate_sentences returns truncated fallback after 3 failed attempts."""
+    """generate_sentences returns whatever it got after retries."""
     from unittest.mock import MagicMock
     from core.text_gen import generate_sentences, ValidationError
     from core.types import CEFRLevel
 
     mock_llm = MagicMock()
-    # Always return wrong count (always fewer than expected)
+    # First call: too few (1 sentence). Second call: still few (2 sentences, batch_size=3)
     mock_llm.create_chat_completion.side_effect = [
         {"choices": [{"message": {"content": "1. Only one."}}]},
-        {"choices": [{"message": {"content": "2. Second attempt only."}}]},
-        {"choices": [{"message": {"content": "3. Final attempt.\n4. Also this one.\n5. Too many but some will be discarded noise\n6. Another valid."}}]},
+        {"choices": [{"message": {"content": "2. Second.\n3. Third."}}]},
     ]
 
     result = generate_sentences(
         scenario="greetings",
         cefr_level=CEFRLevel.A1,
-        batch_size=2,
+        batch_size=3,
         llm=mock_llm,
     )
-    # Should return fallback (first 2 valid lines from last attempt, discarding line without terminal punctuation)
+    # Returns 2 sentences (fewer than batch_size but that's all we got)
     assert len(result) == 2
-    assert result[0] == "Final attempt."
-    assert result[1] == "Also this one."
 
 
 def test_generate_sentences_with_thinking_tags():
@@ -236,20 +260,24 @@ if __name__ == "__main__":
     print("test_mixed_punctuation_with_thinking: PASS")
     test_too_few_raises_validationerror()
     print("test_too_few_raises_validationerror: PASS")
-    test_too_many_truncates()
-    print("test_too_many_truncates: PASS")
-    test_discards_lines_without_terminal_punctuation()
-    print("test_discards_lines_without_terminal_punctuation: PASS")
+    test_all_kept_no_truncation()
+    print("test_all_kept_no_truncation: PASS")
+    test_ignores_non_numbered_lines()
+    print("test_ignores_non_numbered_lines: PASS")
     test_empty_after_tag_stripping_raises()
     print("test_empty_after_tag_stripping_raises: PASS")
     test_dot_numbering_format()
     print("test_dot_numbering_format: PASS")
-    test_dot_numbering_with_paren_format()
-    print("test_dot_numbering_with_paren_format: PASS")
+    test_paren_numbering_format()
+    print("test_paren_numbering_format: PASS")
+    test_uncapped_extraction()
+    print("test_uncapped_extraction: PASS")
     test_generate_sentences_success()
     print("test_generate_sentences_success: PASS")
-    test_generate_sentences_retry_on_count_mismatch()
-    print("test_generate_sentences_retry_on_count_mismatch: PASS")
+    test_generate_sentences_uncapped()
+    print("test_generate_sentences_uncapped: PASS")
+    test_generate_sentences_retry_on_fewer_than_batch()
+    print("test_generate_sentences_retry_on_fewer_than_batch: PASS")
     test_generate_sentences_fallback_after_exhausted_retries()
     print("test_generate_sentences_fallback_after_exhausted_retries: PASS")
     test_generate_sentences_with_thinking_tags()
