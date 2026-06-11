@@ -163,32 +163,70 @@ class LlamaCppTextEngine:
         logger.info("LlamaCppTextEngine loaded %s on %s", self.model_path.name, self.device)
 
     def generate(self, texts: list[str], scenario: str, cefr_level: CEFRLevel, batch_size: int | None = None) -> TextResult:
-        """Generate translations using the loaded GGUF model.
+        """Generate translations using the loaded GGUF model with retry loop.
+
+        Wraps the LLM call in a retry loop (max 3 attempts). If output line count
+        does not match ``batch_size``, builds a stricter prompt referencing the
+        actual vs expected count and retries. On exhaustion, falls back to returning
+        whatever lines were produced on the last attempt.
 
         Args:
             texts: English sentences to translate.
             scenario: Scenario/topic description (not used with this model).
             cefr_level: CEFR proficiency level.
-            batch_size: Not used.
+            batch_size: Number of translations expected.
 
         Returns:
             TextResult with one translation per input text.
 
         Raises:
-            RuntimeError: If generation fails.
+            ValidationError: If generation fails after max attempts and no lines produced.
         """
         self._load_model()
+        if batch_size is None:
+            raise ValueError("batch_size is required for translation")
+
         prompt = self._build_translation_prompt(texts, cefr_level)
+        last_raw_text = ""
 
-        output = self._llm(
-            prompt=prompt,
-            max_tokens=512,
-            temperature=0.7,
-            echo=False,
-        )
+        for attempt in range(1, 4):
+            output = self._llm(
+                prompt=prompt,
+                max_tokens=512,
+                temperature=0.7,
+                echo=False,
+            )
 
-        text = output.get("choices", [{}])[0].get("text", "")
-        lines = [line.strip() for line in text.strip().split("\n") if line.strip()]
+            raw_text = output.get("choices", [{}])[0].get("text", "")
+            last_raw_text = raw_text
+            lines = [line.strip() for line in raw_text.strip().split("\n") if line.strip()]
+
+            if len(lines) == batch_size:
+                logger.info(
+                    "LlamaCppTextEngine: got %d translations on attempt %d (target=%d)",
+                    len(lines), attempt, batch_size,
+                )
+                return TextResult(generated_texts=lines)
+
+            # Count mismatch — retry with stricter prompt
+            if attempt < 3:
+                prompt = self._build_retry_prompt(raw_text, batch_size)
+                logger.warning(
+                    "LlamaCppTextEngine attempt %d: got %d translations, need %d — retrying",
+                    attempt, len(lines), batch_size,
+                )
+            else:
+                logger.warning(
+                    "LlamaCppTextEngine: exhausted all attempts. Got %d translations.",
+                    len(lines),
+                )
+
+        # Exhausted retries — return whatever we got (or empty)
+        if not lines:
+            raise ValidationError(
+                f"Could not generate any translations after 3 attempts.",
+                raw_output=last_raw_text,
+            )
         return TextResult(generated_texts=lines)
 
     def _build_translation_prompt(self, texts: list[str], cefr_level: CEFRLevel) -> str:
@@ -200,6 +238,28 @@ class LlamaCppTextEngine:
             f"Translate these sentences, one per line, in order:\n"
             f"{text_lines}\n"
             "Output ONLY the translations, one per line. No explanations."
+        )
+
+    def _build_retry_prompt(self, raw_output: str, expected_count: int) -> str:
+        """Build a stricter prompt for retry when translation count mismatches.
+
+        Appends a correction instruction to the existing context so the model
+        builds on its previous output rather than starting fresh.
+
+        Args:
+            raw_output: The LLM's previous (incorrect-count) output.
+            expected_count: The number of translations that should have been produced.
+
+        Returns:
+            Prompt string with correction instruction appended.
+        """
+        actual_count = len([line for line in raw_output.strip().split("\n") if line.strip()])
+        return (
+            f"Previous output had the wrong number of lines.\n"
+            f"You produced {actual_count} translations but need exactly {expected_count}.\n"
+            f"Your previous attempt:\n{raw_output}\n\n"
+            f"Now regenerate ALL {expected_count} translations, one per line, in order.\n"
+            f"Output ONLY the translations, one per line. No explanations."
         )
 
     def unload(self) -> None:
