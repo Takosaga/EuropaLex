@@ -3,10 +3,11 @@
 Provides two functions:
 - extract_sentences(raw_text) -> list[str]: Pure function that strips thinking tags,
   parses numbered format (1., 2), etc.), and returns ALL extracted sentences — no cap.
-- generate_sentences(scenario, cefr_level, batch_size, llm) -> list[str]: Orchestrates
-  LLM call with uncapped token limit, extracts numbered sentences and enforces a minimum
-  count. batch_size is the floor; if more are produced, only the first ``batch_size``
+- generate_sentences(scenario, cefr_level, batch_size, llm, topic_description) -> list[str]:
+  Orchestrates LLM call with uncapped token limit, extracts numbered sentences and enforces
+  a minimum count. batch_size is the floor; if more are produced, only the first ``batch_size``
   are returned. Retries up to 2 times if fewer than ``batch_size`` are produced.
+  CEFR level provides linguistic guidance only — topics come from topic_description.
 """
 
 from __future__ import annotations
@@ -66,6 +67,7 @@ def generate_sentences(
     cefr_level: CEFRLevel,
     batch_size: int,
     llm,  # llama_cpp.Llama instance
+    topic_description: str = "",
 ) -> list[str]:
     """Generate English sentences via LLM and extract all numbered output.
 
@@ -76,9 +78,11 @@ def generate_sentences(
 
     Args:
         scenario: Topic description for the LLM.
-        cefr_level: CEFR proficiency level.
+        cefr_level: CEFR proficiency level (linguistic guidance only).
         batch_size: Minimum number of sentences to return.
         llm: Loaded llama-cpp-python Llama instance.
+        topic_description: Free-form description of topics/themes. Overrides any
+            topic hints from the CEFR level.
 
     Returns:
         List of clean sentence strings (up to ``batch_size``) from numbered lines in the output.
@@ -86,15 +90,32 @@ def generate_sentences(
     Raises:
         ValidationError: If extraction fails on both attempts (with raw output attached).
     """
+    # Build topic guidance — use free-form description if provided, otherwise fall back to scenario
+    if topic_description:
+        topic_guidance = (
+            f"Focus on these topics/themes: {topic_description}. "
+            "Each sentence should explore a different aspect of these topics."
+        )
+    else:
+        topic_guidance = (
+            f"Focus on the scenario described below. "
+            "Each sentence should explore a different aspect of it."
+        )
+
     _base_messages = [
         {
             "role": "system",
             "content": (
-                "You are a language teacher. Generate simple, clear sentences at the specified CEFR level "
-                "about the given scenario. Number each sentence 1 to N, one per line. "
+                "You are a language teacher. Generate clear sentences appropriate for the specified CEFR level "
+                "about the given topics/scenario. Number each sentence 1 to N, one per line. "
                 f"Generate AT LEAST {batch_size} numbered sentences — more is acceptable.\n"
                 "\n"
-                "VARIETY REQUIREMENT: Each sentence must cover a different aspect or sub-topic of the scenario. "
+                "CEFR LINGUISTIC GUIDANCE:\n"
+                f"{cefr_level.description()}\n"
+                "\n"
+                f"{topic_guidance}\n"
+                "\n"
+                "VARIETY REQUIREMENT: Each sentence must cover a different aspect or sub-topic. "
                 "Do NOT repeat similar ideas. Mix sentence types (statements, questions, exclamations). "
                 "Use diverse vocabulary and sentence structures — avoid starting multiple sentences the same way.\n"
                 "\n"
@@ -108,12 +129,15 @@ def generate_sentences(
         {
             "role": "user",
             "content": (
-                f"Generate simple sentences at CEFR level {cefr_level.value}\n"
-                f"about the following scenario. Number each sentence 1 to N, one per line.\n"
+                f"Generate sentences appropriate for CEFR level {cefr_level.value}\n"
+                f"about the following topics/scenario. Number each sentence 1 to N, one per line.\n"
                 f"Generate AT LEAST {batch_size} sentences — more is acceptable.\n"
-                "IMPORTANT: Make each sentence about a DIFFERENT aspect of the scenario. "
+                "\n"
+                f"Topics/themes: {topic_description if topic_description else scenario}\n"
+                f"Scenario details: {scenario}\n"
+                "\n"
+                "IMPORTANT: Make each sentence about a DIFFERENT aspect of the topics/scenario. "
                 "Use varied vocabulary and structures — no repetitive patterns.\n"
-                f"Scenario: {scenario}\n"
                 "\n"
                 "Output ONLY the numbered sentences, one per line. No other text."
             ),
