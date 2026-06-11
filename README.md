@@ -97,11 +97,12 @@ EuropaLex generates flashcards in two phases: English text first (Phase 1), then
 
 ### Phase 2 — Generate Translation + Media
 
-1. After Phase 1 completes, the **Images** and **Audio** toggles become active (unchecked by default)
-2. Toggle on whichever media types you want (images, audio, or both)
-3. Click **Generate Cards**
-4. The app translates via tiny-aya-water (`LlamaCppTextEngine`) with retry validation
-5. Cards update: translation moves to the front, English stays on the back; image and audio controls will appear when media engines are integrated
+1. Select a target language from the **Target Language** dropdown (Latvian, Spanish, French, German, Polish, Italian, Portuguese, Finnish)
+2. After Phase 1 completes, the **Images** and **Audio** toggles become active (unchecked by default)
+3. Toggle on whichever media types you want (images, audio, or both)
+4. Click **Generate Cards**
+5. The app translates via tiny-aya-water (`LlamaCppTextEngine`) with retry validation
+6. Cards update: translation moves to the front, English stays on the back; image and audio controls will appear when media engines are integrated
 
 > **Note:** Phase 1 → Phase 2 translation is now live. Images and audio toggles are available but media generation is not yet wired — those fields remain empty.
 

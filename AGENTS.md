@@ -131,15 +131,16 @@ The UI operates in two distinct phases:
 4. After completion, `_enable_phase2()` removes disabled CSS and enables toggles + "Generate Cards" button
 
 **Phase 2 — Generate Translation + Media (deferred):**
-1. User toggles Images/Audio on/off
-2. User clicks "Generate Cards"
-3. `app.py` calls the media generation handler → tiny-aya-water (`LlamaCppTextEngine`) translates, then OmniVoice (TTS) + FLUX.2 (images) fill in media
-4. Cards update: translation appears on the front, image and audio controls appear with it; English text moves to the back
-5. Both buttons hide during generation, reappear when done
+1. User selects a target language from the **Target Language** dropdown (defaults to Latvian)
+2. User toggles Images/Audio on/off
+3. User clicks "Generate Cards"
+4. `app.py` calls the media generation handler → tiny-aya-water (`LlamaCppTextEngine`) translates, then OmniVoice (TTS) + FLUX.2 (images) fill in media
+5. Cards update: translation appears on the front, image and audio controls appear with it; English text moves to the back
+6. Both buttons hide during generation, reappear when done
 
 **Rules:**
 - Never skip Phase 1. Even if media-only mode seems useful, text must be generated first.
-- When user changes input parameters (scenario, CEFR level, batch size), call `_reset_to_idle()` to restore disabled states and hidden buttons.
+- When user changes input parameters (scenario, CEFR level, batch size, target language), call `_reset_to_idle()` to restore disabled states and hidden buttons.
 - The disabled state uses CSS class `europalex-btn-disabled` and inline styles with `#phase-css` ID. Don't remove these — they're tied to the two-phase state machine.
 
 ### Progress Tracking
@@ -281,7 +282,7 @@ Card rendering belongs in `frontend/ui/cards.py`. If you find yourself building 
 
 The disabled/enabled toggle states are managed via CSS injection (`#phase-css`) and Gradio element re-rendering. If you add new phase-dependent controls, remember to:
 - Give them an `elem_id` for targeting
-- Include them in `_reset_to_idle()` outputs
+- Include them in `_reset_to_idle()` outputs (including `language_dropdown` which triggers reset on change)
 - Include them in `_enable_phase2()` outputs
 
 ### 3. Gradio generator functions must yield tuples
