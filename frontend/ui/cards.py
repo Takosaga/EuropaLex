@@ -2,6 +2,7 @@
 # Styled card widgets for front/back text + media
 
 import math
+from pathlib import Path
 
 
 def render_card_html(
@@ -54,7 +55,11 @@ def render_card_html(
     # Build audio button HTML (conditional, for front side)
     audio_html = ""
     if include_audio:
-        audio_html = '<span class="media-btn" title="Play audio">▶</span>'
+        audio_path = card_data.get("audio_path")
+        if audio_path and Path(audio_path).exists():
+            audio_html = f'<audio controls preload="none" style="height:28px;"><source src="{audio_path}" type="audio/wav">Audio</audio>'
+        else:
+            audio_html = '<span class="media-btn" title="Generating audio...">▶</span>'
 
     # Build front media row (only in normal mode — not Phase 1)
     if placeholder_back:
