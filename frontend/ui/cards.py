@@ -10,24 +10,24 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 def _build_audio_url(audio_path: str) -> str:
-    """Convert an absolute audio file path to a static-file URL.
+    """Convert an absolute audio file path to a Gradio static-file URL.
 
-    The Gradio app mounts the project root as a static file directory at ``/static``
+    The Gradio app registers the project root via ``gr.set_static_paths()``
     (see ``app.py``). This function strips the project-root prefix so the resulting
-    URL resolves correctly.
+    URL resolves correctly via Gradio's ``/gradio_api/file=`` route.
 
     Args:
         audio_path: Absolute filesystem path to the .wav file.
 
     Returns:
-        URL string like ``/static/.local/audio/output/sentence.wav``.
+        URL string like ``/gradio_api/file=.local/models/output/audio/audio_0.wav``.
     """
     try:
         rel = Path(audio_path).relative_to(_PROJECT_ROOT)
     except ValueError:
         # Path is outside project root — fall back to absolute path
         return audio_path
-    return f"/static/{rel}".replace(os.sep, '/')
+    return f"/gradio_api/file={rel}".replace(os.sep, '/')
 
 
 def render_card_html(
