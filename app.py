@@ -12,7 +12,6 @@ import os
 from pathlib import Path
 
 import gradio as gr
-from fastapi.staticfiles import StaticFiles
 
 logger = logging.getLogger(__name__)
 from core.engine import EnginePool, MiniCPMTextEngine
@@ -442,10 +441,10 @@ if __name__ == "__main__":
     with open(css_path, "r") as f:
         css_content = f.read()
 
-    # Mount the project root as a static file directory so generated audio/images are accessible.
-    # URLs like /static/.local/audio/output/sentence.wav resolve to the filesystem path.
+    # Register the project root as a static directory so generated audio/images are accessible
+    # inside gr.HTML output via /gradio_api/file=<relative-path> URLs.
     project_root = Path(__file__).resolve().parent
-    demo.app.mount("/static", StaticFiles(directory=str(project_root)), name="static")
+    gr.set_static_paths(paths=[project_root])
 
     demo.launch(
         server_name="0.0.0.0",
