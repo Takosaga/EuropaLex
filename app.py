@@ -295,11 +295,33 @@ def generate_media_async(
             cards, include_image=include_images, include_audio=include_audio, placeholder_back=False
         )
 
-    # Generate images for all translations if requested
+    # Generate TTS audio for all translations if requested
     image_paths: list[str | None] = [None] * len(cards)
     tts_generated = False
+    if include_audio and cards:
+        yield generate_progress_html(70, "Generating audio..."), generate_cards_html(
+            cards, include_image=include_images, include_audio=True, placeholder_back=False
+        )
+        try:
+            tts_engine = pool.get_tts_engine()
+            output_dir = Path(config.models_dir) / "output" / "audio"
+            translations_list = [c["translation"] for c in cards]
+            audio_result = tts_engine.synthesize(translations_list, output_dir, language=target_language, instruct=voice)
+            audio_paths = audio_result.audio_paths
+
+            # Attach audio paths to cards
+            for i, path in enumerate(audio_paths):
+                if path is not None:
+                    cards[i]["audio_path"] = path
+            tts_generated = True
+        except Exception as e:
+            logger.error("TTS generation failed: %s", e, exc_info=True)
+            # Cards remain without audio — user can retry
+            tts_generated = False
+
+    # Generate images for all translations if requested
     if include_images and cards:
-        yield generate_progress_html(70, "Generating images..."), generate_cards_html(
+        yield generate_progress_html(85, "Generating images..."), generate_cards_html(
             cards, include_image=True, include_audio=tts_generated, placeholder_back=False
         )
         try:
@@ -323,30 +345,6 @@ def generate_media_async(
             logger.error("Image generation failed: %s", e, exc_info=True)
             # Cards remain without images — user can retry
 
-    # Generate TTS audio for all translations if requested
-    # Note: always include generated media in final output regardless of toggle state,
-    # so previously generated audio/images remain accessible after toggling off.
-    if include_audio and cards:
-        yield generate_progress_html(85, "Generating audio..."), generate_cards_html(
-            cards, include_image=include_images, include_audio=True, placeholder_back=False
-        )
-        try:
-            tts_engine = pool.get_tts_engine()
-            output_dir = Path(config.models_dir) / "output" / "audio"
-            translations_list = [c["translation"] for c in cards]
-            audio_result = tts_engine.synthesize(translations_list, output_dir, language=target_language, instruct=voice)
-            audio_paths = audio_result.audio_paths
-
-            # Attach audio paths to cards
-            for i, path in enumerate(audio_paths):
-                if path is not None:
-                    cards[i]["audio_path"] = path
-            tts_generated = True
-        except Exception as e:
-            logger.error("TTS generation failed: %s", e, exc_info=True)
-            # Cards remain without audio — user can retry
-            tts_generated = False
-
     # Final yield with 100%
     if not cards:
         yield generate_progress_html(0, "\u26a0\ufe0f No translations produced."), (
@@ -358,7 +356,7 @@ def generate_media_async(
     else:
         if include_images:
             if tts_generated:
-                final_label = "Translation, images, and audio complete!"
+                final_label = "Translation, audio, and images complete!"
             else:
                 final_label = "Translation and images complete!"
         else:
