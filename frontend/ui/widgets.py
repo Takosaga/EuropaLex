@@ -22,11 +22,14 @@ def create_toggle(label: str, value: bool = True, elem_id: str = "") -> "gr.Chec
     )
 
 
-def create_voice_dropdown(default_voice: str = "female, young adult") -> "gr.Dropdown":
+def create_voice_dropdown(
+    default_voice: str = "female, young adult",
+) -> "gr.Dropdown":
     """Create a voice selection dropdown for TTS audio generation.
 
     Six presets mapped to OmniVoice instruct strings (gender × age).
     Ordered by gender first, then age from oldest to youngest.
+    Visible by default; disabled via CSS until Audio toggle is ON.
 
     Args:
         default_voice: Default OmniVoice instruct string.
@@ -51,4 +54,5 @@ def create_voice_dropdown(default_voice: str = "female, young adult") -> "gr.Dro
         value=default_voice,
         elem_id="voice-dropdown",
         allow_custom_value=True,
+        visible=True,
     )
