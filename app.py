@@ -8,9 +8,11 @@ Run: uv sync && python app.py
 """
 
 import logging
+import os
 from pathlib import Path
 
 import gradio as gr
+from fastapi.staticfiles import StaticFiles
 
 logger = logging.getLogger(__name__)
 from core.engine import EnginePool, MiniCPMTextEngine
@@ -439,6 +441,12 @@ if __name__ == "__main__":
     css_path = os.path.join(os.path.dirname(__file__), "frontend", "css", "custom.css")
     with open(css_path, "r") as f:
         css_content = f.read()
+
+    # Mount the project root as a static file directory so generated audio/images are accessible.
+    # URLs like /static/.local/audio/output/sentence.wav resolve to the filesystem path.
+    project_root = Path(__file__).resolve().parent
+    demo.app.mount("/static", StaticFiles(directory=str(project_root)), name="static")
+
     demo.launch(
         server_name="0.0.0.0",
         server_port=7860,

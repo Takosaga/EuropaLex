@@ -2,7 +2,32 @@
 # Styled card widgets for front/back text + media
 
 import math
+import os
 from pathlib import Path
+
+# Project root directory — used to build Gradio-served URLs
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def _build_audio_url(audio_path: str) -> str:
+    """Convert an absolute audio file path to a static-file URL.
+
+    The Gradio app mounts the project root as a static file directory at ``/static``
+    (see ``app.py``). This function strips the project-root prefix so the resulting
+    URL resolves correctly.
+
+    Args:
+        audio_path: Absolute filesystem path to the .wav file.
+
+    Returns:
+        URL string like ``/static/.local/audio/output/sentence.wav``.
+    """
+    try:
+        rel = Path(audio_path).relative_to(_PROJECT_ROOT)
+    except ValueError:
+        # Path is outside project root — fall back to absolute path
+        return audio_path
+    return f"/static/{rel}".replace(os.sep, '/')
 
 
 def render_card_html(
@@ -57,7 +82,13 @@ def render_card_html(
     if include_audio:
         audio_path = card_data.get("audio_path")
         if audio_path and Path(audio_path).exists():
-            audio_html = f'<audio controls preload="none" style="height:28px;"><source src="{audio_path}" type="audio/wav">Audio</audio>'
+            # Convert absolute path to Gradio /file/ URL
+            audio_url = _build_audio_url(audio_path)
+            audio_html = (
+                f'<audio controls preload="none" '
+                f'style="height:28px; max-width:100%; width:auto; "'
+                f'><source src="{audio_url}" type="audio/wav">Audio</audio>'
+            )
         else:
             audio_html = '<span class="media-btn" title="Generating audio...">▶</span>'
 
@@ -88,6 +119,7 @@ def render_card_html(
         justify-content: center;
         transform: rotate({rotation}deg);
         transition: all 0.2s ease;
+        overflow: hidden;
     " onmouseover="this.style.transform='rotate(0deg) scale(1.02)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.2)'" onmouseout="this.style.transform='rotate({rotation}deg)'; this.style.boxShadow='0 2px 6px rgba(0,0,0,0.15), 0 1px 2px rgba(0,0,0,0.1)'">
         <div class="front-text" style="font-size:0.95em; font-weight:bold; color:#2a1f0f; margin-bottom:6px; line-height:1.35; font-style:italic;">{front}</div>
         {image_html}
