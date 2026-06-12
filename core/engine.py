@@ -432,7 +432,13 @@ class TTSEngine:
         self._loaded = True
         logger.info("OmniVoice model loaded on %s", self.device)
 
-    def synthesize(self, texts: list[str], output_dir: Path, language: str | None = None) -> AudioResult:
+    def synthesize(
+        self,
+        texts: list[str],
+        output_dir: Path,
+        language: str | None = None,
+        instruct: str | None = None,
+    ) -> AudioResult:
         """Generate audio for a batch of texts using voice design mode.
 
         Uses OmniVoice in voice design mode with a consistent female voice.
@@ -443,6 +449,8 @@ class TTSEngine:
             output_dir: Directory to save .wav files.
             language: Target language name for TTS (e.g., "Latvian", "Spanish").
                 Improves synthesis quality when known. Defaults to None (auto-detect).
+            instruct: OmniVoice voice design string (e.g., "female, young adult").
+                Defaults to "female, young adult" when omitted.
 
         Returns:
             AudioResult with absolute paths to generated audio files.
@@ -455,7 +463,7 @@ class TTSEngine:
             try:
                 audio_data = self._model.generate(
                     text=text,
-                    instruct="female",
+                    instruct=instruct or "female, young adult",
                     language=language,
                 )
                 if audio_data and len(audio_data) > 0:
