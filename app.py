@@ -191,6 +191,8 @@ def generate_media_async(
     TTS audio for all translations via OmniVoice (voice design mode), and
     yields progressive card updates so cards appear incrementally.
     """
+    global _phase1_texts
+
     if not _phase1_texts:
         yield generate_progress_html(0, "⚠️ Please generate text first."), (
             '<div style="color:#c44; padding:20px;">'
@@ -198,6 +200,14 @@ def generate_media_async(
             '</div>'
         )
         return
+
+    # Clear accumulated cards from any previous language generation.
+    # _phase1_texts is a module-level global that persists across calls — without
+    # resetting it, Gradio's HTML output retains old cards (with stale audio paths)
+    # while new cards are appended, causing mixed-language output.
+    # We save the texts first, then clear the global so subsequent calls start fresh.
+    _current_texts = list(_phase1_texts)
+    _phase1_texts = []
 
     try:
         config = EngineConfig.from_settings_yaml()
@@ -246,7 +256,7 @@ def generate_media_async(
     cards: list[dict] = []
     total = len(_phase1_texts)
 
-    for i, english_text in enumerate(_phase1_texts):
+    for i, english_text in enumerate(_current_texts):
         try:
             translation = translation_engine._translate_single(
                 english_text, cefr,
