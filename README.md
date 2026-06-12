@@ -102,9 +102,10 @@ EuropaLex generates flashcards in two phases: English text first (Phase 1), then
 3. Toggle on whichever media types you want (images, audio, or both)
 4. Click **Generate Cards**
 5. The app translates via tiny-aya-water (`LlamaCppTextEngine`) with retry validation
-6. Cards update: translation moves to the front, English stays on the back; image and audio controls will appear when media engines are integrated
+6. If Audio is toggled ON, TTS audio is generated via OmniVoice (`TTSEngine`) with voice design mode
+7. Cards update: translation moves to the front, English stays on the back; image and audio controls appear alongside translations
 
-> **Note:** Phase 1 → Phase 2 translation is now live. Images and audio toggles are available but media generation is not yet wired — those fields remain empty.
+> **Note:** Phase 1 → Phase 2 translation and TTS audio are now fully operational. Image generation toggle is available but images are not yet wired into the pipeline — that field remains empty.
 
 ### Export
 
@@ -126,14 +127,14 @@ EuropaLex is organized into five main modules:
 ### Data Flow
 
 ```
-User Input → [Gradio UI] → EnginePool (singleton) → MiniCPMTextEngine (Phase 1) → pipeline.generate_phase2() → LlamaCppTextEngine (translation, Phase 2) → Card Gallery → Export (.apkg / .csv)
+User Input → [Gradio UI] → EnginePool (singleton) → MiniCPMTextEngine (Phase 1) → pipeline.generate_phase2() → LlamaCppTextEngine (translation, Phase 2) → TTSEngine (TTS audio, Phase 2) → Card Gallery → Export (.apkg / .csv)
 ```
 
 - **Inference:** `core/engine.py` defines five engine classes:
   - `MiniCPMTextEngine` — llama-cpp-python wrapper for MiniCPM5-1B Q8_0 (lazy-load/unload, ~1.1 GB RAM, uses apply_chat_template). Uses `TextResult.validate_and_parse()` to strip `<thinking>` tags and enforce exact sentence count; retries with stricter prompts on mismatch (max 3 attempts). Used in Phase 1 for English text generation only.
   - `LlamaCppTextEngine` — llama-cpp-python wrapper for tiny-aya-water translation (lazy-load/unload, ~2 GB VRAM). Validates output line count against `batch_size`; retries with stricter prompts on mismatch (max 3 attempts). Used in Phase 2 for translation.
-  - `TTSEngine` — OmniVoice Python package with lazy-load/unload cycle (GPU memory managed by EnginePool). Used in Phase 2 for TTS audio.
-  - `ImageGenEngine` — diffusers Flux2KleinPipeline with lazy-load/unload cycle (GPU memory managed by EnginePool). Used in Phase 2 for images.
+  - `TTSEngine` — OmniVoice Python package with lazy-load/unload cycle. Supports voice design mode via `instruct` parameter (e.g., "female, young adult"). Used in Phase 2 for TTS audio.
+  - `ImageGenEngine` — diffusers Flux2KleinPipeline with lazy-load/unload cycle (GPU memory managed by EnginePool). Image generation toggle is available but not yet wired into the pipeline.
   - `EnginePool` — singleton orchestrator enforcing mutual exclusion between all GPU engines. Phase 1 uses only `MiniCPMTextEngine` (~1.1 GB RAM). Phase 2 loads GPU engines sequentially: translation → TTS/images.
 - **Types:** `core/types.py` provides Pydantic models (`CardData`, `CEFRLevel`, `ValidationError`, `TextResult`, `AudioResult`, `ImageResult`, `EngineConfig`) for type-safe boundaries. `TextResult.generated_texts` replaces the legacy `.translations`; `AudioResult.audio_paths` and `ImageResult.image_paths` are `list[str | None]` (never None at top level).
 - **Pipeline:** `core/pipeline.py` provides `generate_phase2()` — a generator function that yields `(progress_percent, phase_label, cards)` tuples for real-time UI updates. Extends this when adding new media types (TTS, images).
