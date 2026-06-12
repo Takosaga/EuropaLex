@@ -331,8 +331,7 @@ def generate_media_async(
             prompts = []
             for card in cards:
                 prompt = (
-                    f"Simple educational illustration for language learning that will be used on a flashcard: {card['text']}. "
-                    f"Level: {cefr.value}. NO TEXT IN IMAGES"
+                    f"Simple educational illustration with NO TEXT for language learning for the following text: {card['text']}. "
                 )
                 prompts.append(prompt)
             image_result = img_engine.generate(prompts, output_dir)
