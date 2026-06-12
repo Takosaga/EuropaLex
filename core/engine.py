@@ -12,7 +12,7 @@ import numpy as np
 import soundfile as sf
 import torch
 
-from core.types import CEFRLevel, EngineConfig, TextResult, ValidationError
+from core.types import AudioResult, CEFRLevel, EngineConfig, ImageResult, TextResult, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -412,7 +412,7 @@ class TTSEngine:
         self._loaded = False
 
     def _load_model(self) -> None:
-        """Lazy-load the OmniVoice model from HF Hub."""
+        """Lazy-load the OmniVoice model from HF Hub (cached locally)."""
         if self._loaded:
             return
 
@@ -423,6 +423,7 @@ class TTSEngine:
                 "omnivoice package not installed. Run: pip install omnivoice"
             )
 
+        logger.info("Loading OmniVoice from HF Hub (cached in ~/.cache/huggingface/)")
         self._model = OmniVoice.from_pretrained(
             "k2-fsa/OmniVoice",
             device_map=self.device,
@@ -454,7 +455,7 @@ class TTSEngine:
             try:
                 audio_data = self._model.generate(
                     text=text,
-                    instruct="female speaking",
+                    instruct="female",
                     language=language,
                 )
                 if audio_data and len(audio_data) > 0:
@@ -502,7 +503,7 @@ class ImageGenEngine:
         self._loaded = False
 
     def _load_pipeline(self) -> None:
-        """Lazy-load the Flux2Klein pipeline from HF Hub."""
+        """Lazy-load the Flux2Klein pipeline from HF Hub (cached locally)."""
         if self._loaded:
             return
 
@@ -514,6 +515,7 @@ class ImageGenEngine:
             )
 
         torch_dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
+        logger.info("Loading Flux2Klein from HF Hub (cached in ~/.cache/huggingface/)")
         self._pipeline = Flux2KleinPipeline.from_pretrained(
             "black-forest-labs/FLUX.2-klein-4B",
             torch_dtype=torch_dtype,
