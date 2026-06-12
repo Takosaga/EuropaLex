@@ -415,7 +415,10 @@ with gr.Blocks() as demo:
             yield result
 
     def _enable_phase2():
-        """After text generation, enable toggles and Generate Cards button by removing disabled CSS."""
+        """After text generation, enable toggles and Generate Cards button by removing disabled CSS.
+
+        Also enables the language dropdown when audio is ON (via JS handler).
+        """
         return (
             gr.Checkbox(interactive=True),
             gr.Checkbox(interactive=True),
@@ -430,16 +433,23 @@ with gr.Blocks() as demo:
         Only resets toggle/button interactivity — keeps cards visible
         so the user can regenerate without losing their work.
         Also restores both buttons visibility (hidden by Phase 2).
-        Re-applies disabled CSS to phase-2 controls.
+        Re-applies disabled CSS to phase-2 controls, including the language dropdown.
         """
         return (
             gr.Button(visible=True, interactive=True),
             gr.Checkbox(interactive=False),
             gr.Checkbox(interactive=False),
             gr.Button(visible=True, interactive=False, variant="secondary"),
-            """<style id="phase-css">#toggle-images, #toggle-audio { opacity: 0.45; pointer-events: none; cursor: not-allowed; } #generate-cards-btn { opacity: 0.45; pointer-events: none; cursor: not-allowed; }</style>""",
+            """<style id="phase-css">#toggle-images, #toggle-audio { opacity: 0.45; pointer-events: none; cursor: not-allowed; } #generate-cards-btn { opacity: 0.45; pointer-events: none; cursor: not-allowed; } #language-dropdown { opacity: 0.5; pointer-events: none; cursor: not-allowed; }</style>""",
             gr.Dropdown(visible=False),
         )
+
+    def _enable_language_dropdown_on_audio(is_checked):
+        """Enable or disable the language dropdown based on audio toggle state."""
+        if is_checked:
+            return ""  # remove disabled style
+        else:
+            return """<style id="phase-css">#toggle-images, #toggle-audio { opacity: 0.45; pointer-events: none; cursor: not-allowed; } #generate-cards-btn { opacity: 0.45; pointer-events: none; cursor: not-allowed; } #language-dropdown { opacity: 0.5; pointer-events: none; cursor: not-allowed; }</style>"""
 
     generate_text_btn.click(
         fn=_handle_text_generation,
@@ -449,6 +459,13 @@ with gr.Blocks() as demo:
         fn=_enable_phase2,
         inputs=[],
         outputs=[images_toggle, audio_toggle, generate_cards_btn, phase_css, voice_dropdown],
+    )
+
+    # Enable/disable language dropdown when audio toggle changes
+    audio_toggle.change(
+        fn=_enable_language_dropdown_on_audio,
+        inputs=[audio_toggle],
+        outputs=[phase_css],
     )
 
     generate_cards_btn.click(
