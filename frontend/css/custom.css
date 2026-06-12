@@ -74,40 +74,53 @@ body, .gradio-container {
     padding-top: 6px;
 }
 
-/* === Media Buttons (Audio + Image) === */
-.flashcard .media-row {
+/* === Media Boxes — separate containers for image and audio === */
+.media-boxes-row {
     display: flex;
-    gap: 8px;
-    margin-top: 8px;
-    align-items: center;
-}
-
-.media-btn {
-    width: 24px;
-    height: 24px;
-    border-radius: 50% !important;
-    background: #f5f5f5 !important;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 12px;
-    cursor: default;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.08) !important;
-}
-
-/* === Image Placeholder in Card === */
-.img-placeholder {
-    width: 100%;
-    height: 40px;
-    background: #f5f5f5;
-    border-radius: 6px;
+    flex-direction: column;
+    gap: 6px;
     margin-top: 6px;
+}
+
+.media-box {
+    border-radius: 6px;
+    border: 1px solid #e0d8c8;
+    background: #faf8f2;
+    padding: 4px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 16px;
-    border: 1px dashed #d0d0d0;
 }
+
+/* Image box — slightly larger, with dashed border when empty */
+.media-box-image {
+    min-height: 50px;
+    border-style: dashed;
+}
+
+.media-box-image.img-placeholder {
+    background: #f5f3ed;
+}
+
+/* Audio box — compact, with subtle shadow */
+.media-box-audio {
+    padding: 6px 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+
+/* ─── Constrain native audio controls inside media boxes ────────── */
+.media-box-audio audio {
+    width: 100% !important;
+    height: 32px !important;
+}
+
+/* Placeholder button inside audio box */
+.media-btn {
+    font-size: 14px;
+    cursor: default;
+}
+
+
 
 /* === Export Bar === */
 .export-bar {

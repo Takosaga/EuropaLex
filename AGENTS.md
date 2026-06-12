@@ -84,7 +84,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 ### Data Flow Through the App
 
 ```
-User input → app.py click handler → EnginePool.get(config) → MiniCPMTextEngine (Phase 1) → pipeline.generate_phase2() → LlamaCppTextEngine (translation, Phase 2) → TTSEngine/ImageGenEngine (media, future) → frontend/ui/cards.py rendering → Gradio output
+User input → app.py click handler → EnginePool.get(config) → MiniCPMTextEngine (Phase 1) → pipeline.generate_phase2() → LlamaCppTextEngine (translation, Phase 2) → TTSEngine (TTS audio, Phase 2) → frontend/ui/cards.py rendering → Gradio output
 ```
 
 When adding a new feature, follow this chain. Phase 1 uses `MiniCPMTextEngine` directly; Phase 2 translation goes through `pipeline.generate_phase2()`.
@@ -98,13 +98,14 @@ When adding a new feature, follow this chain. Phase 1 uses `MiniCPMTextEngine` d
 Use the wrapper functions in `frontend/ui/widgets.py`. Example:
 
 ```python
-from frontend.ui.widgets import create_toggle
+from frontend.ui.widgets import create_toggle, create_voice_dropdown
 
 images_toggle = create_toggle("🖼️ Images", value=True, elem_id="toggle-images")
 audio_toggle = create_toggle("🔊 Audio", value=False, elem_id="toggle-audio")
+voice_dropdown = create_voice_dropdown()  # hidden until audio toggle is ON
 ```
 
-The `elem_id` follows the pattern: `toggle-<label-without-emoji>`. This is used for CSS targeting and two-phase disabled state management.
+The `elem_id` follows the pattern: `toggle-<label-without-emoji>` for toggles; `voice-dropdown` for the voice selector. This is used for CSS targeting and two-phase disabled state management.
 
 ### Card Rendering
 
@@ -117,7 +118,7 @@ All card HTML goes through `frontend/ui/cards.py`:
 - Never construct card HTML inline in `app.py`. Always call these functions.
 - The `rotation` parameter creates the "spread on desk" visual effect. Use the rotation distribution logic from `generate_cards_html()` — don't hard-code angles.
 - **Card layout:** Translation (target language) on front, English on back (after Phase 2). During Phase 1 (`placeholder_back=True`), English is on front with a dashed placeholder back.
-- **Media placement:** Image 🖼️ and audio ▶ controls render on the front side alongside the translation (not on the back).
+- **Media placement:** Image 🖼️ and audio ▶ controls render as separate `.media-box` containers inside a `.media-boxes-row` flex column on the front side alongside the translation (not on the back).
 - `placeholder_back=True` shows a dashed placeholder line instead of translation text (used during Phase 1 before translations are generated).
 
 ### Two-Phase Generation Workflow
@@ -130,12 +131,13 @@ The UI operates in two distinct phases:
 3. Cards render with English on the front, placeholder back (dashed line)
 4. After completion, `_enable_phase2()` removes disabled CSS and enables toggles + "Generate Cards" button
 
-**Phase 2 — Generate Translation + Media (deferred):**
+**Phase 2 — Generate Translation + Media:**
 1. User selects a target language from the **Target Language** dropdown (defaults to Latvian)
-2. User toggles Images/Audio on/off
-3. User clicks "Generate Cards"
-4. `app.py` calls the media generation handler → tiny-aya-water (`LlamaCppTextEngine`) translates, then OmniVoice (TTS) + FLUX.2 (images) fill in media
-5. Cards update: translation appears on the front, image and audio controls appear with it; English text moves to the back
+2. After Phase 1 completes, the **Images** and **Audio** toggles become active (unchecked by default)
+3. User toggles Images/Audio on/off; if Audio is ON, a hidden **Voice** dropdown becomes visible with 6 voice presets (gender × age)
+4. User clicks "Generate Cards"
+5. `app.py` calls the media generation handler → tiny-aya-water (`LlamaCppTextEngine`) translates, then OmniVoice (`TTSEngine`) generates TTS audio with the selected voice via voice design mode
+6. Cards update: translation appears on the front, image and audio controls appear alongside it; English text moves to the back
 6. Both buttons hide during generation, reappear when done
 
 **Rules:**
@@ -184,8 +186,8 @@ Five concrete engine classes replace the legacy `InferenceEngine` protocol:
 |---|---|---|
 | `MiniCPMTextEngine` | llama-cpp-python (GGUF) | Lazy-load on first `.generate()`, unload after completion (~1.1 GB RAM). Uses `apply_chat_template`. Validates output sentence count against `batch_size`; retries with stricter prompts on mismatch (max 3 attempts). Used in Phase 1 for English text generation. |
 | `LlamaCppTextEngine` | llama-cpp-python (GGUF) | Lazy-load on first `.generate()`, unload after completion (~2 GB VRAM). Validates output line count against `batch_size`; retries with stricter prompts on mismatch (max 3 attempts). Used in Phase 2 for translation. |
-| `TTSEngine` | omnivoice (PyTorch) | Lazy-load on first `.synthesize()`, unload after completion. Used in Phase 2 for TTS audio. |
-| `ImageGenEngine` | diffusers Flux2KleinPipeline (PyTorch) | Lazy-load on first `.generate()`, unload after completion. Used in Phase 2 for images. |
+| `TTSEngine` | omnivoice (PyTorch) | Lazy-load on first `.synthesize()`, unload after completion. Accepts `instruct` parameter for voice design mode. Used in Phase 2 for TTS audio. |
+| `ImageGenEngine` | diffusers Flux2KleinPipeline (PyTorch) | Lazy-load on first `.generate()`, unload after completion. Image generation toggle is available but not yet wired into the pipeline. |
 | `EnginePool` | Singleton factory | Manages mutual exclusion between all GPU engines. Phase 1 uses only `MiniCPMTextEngine` (~1.1 GB RAM). Phase 2 loads GPU engines sequentially: translation → TTS/images. |
 
 **Rules:**
@@ -308,6 +310,20 @@ Gradio's default styles use `!important` heavily. Our `custom.css` also uses `!i
 
 Models live in a configurable directory (default: `.local/models/`, see `configs/settings.yaml`). Never hard-code model file paths. Always resolve paths via the settings config or `models/download_models.py`. Each model has its own runtime engine — don't assume llama-cli can run all GGUF files.
 
-### 6. LLM output may not match expected count
+### 6. Clear `_phase1_texts` between Phase 2 calls
+
+`_phase1_texts` is a module-level global that persists across `generate_media_async()` calls. Without resetting it, Gradio's HTML output retains old cards (with stale audio paths) while new cards are appended, causing mixed-language output. Always save the texts first, then clear the global:
+
+```python
+_current_texts = list(_phase1_texts)
+_phase1_texts = []
+# ... use _current_texts for processing ...
+```
+
+### 7. Voice dropdown visibility is phase-dependent
+
+The voice dropdown starts hidden (`visible = False`) and only becomes visible when the Audio toggle is ON (via `_enable_language_dropdown_on_audio`). It must be included in `_reset_to_idle()` outputs alongside toggles and buttons, and its `elem_id` must be targeted by disabled CSS. Do not assume it's always visible.
+
+### 8. LLM output may not match expected count
 
 Both `MiniCPMTextEngine.generate()` and `LlamaCppTextEngine.generate()` validate output count against `batch_size` and retry automatically (max 3 attempts). Do **not** slice output with `[:batch_size]` as a band-aid — the engines already handle this via retry loops. If you bypass an engine and call an LLM directly, you must implement the same validation logic.

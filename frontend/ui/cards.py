@@ -2,6 +2,36 @@
 # Styled card widgets for front/back text + media
 
 import math
+import os
+from pathlib import Path
+
+# Project root directory — used to build Gradio-served URLs
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def _build_audio_url(audio_path: str) -> str:
+    """Convert an absolute audio file path to a Gradio static-file URL.
+
+    The Gradio app registers the project root via ``gr.set_static_paths()``
+    (see ``app.py``). This function strips the project-root prefix so the resulting
+    URL resolves correctly via Gradio's ``/gradio_api/file=`` route.
+
+    Appends a cache-busting query parameter so regenerated audio files are not
+    served from browser cache under the same filename.
+
+    Args:
+        audio_path: Absolute filesystem path to the .wav file.
+
+    Returns:
+        URL string like ``/gradio_api/file=.local/models/output/audio/audio_0.wav?t=1234567890``.
+    """
+    import time
+    try:
+        rel = Path(audio_path).relative_to(_PROJECT_ROOT)
+    except ValueError:
+        # Path is outside project root — fall back to absolute path
+        return audio_path
+    return f"/gradio_api/file={rel}?t={int(time.time())}".replace(os.sep, '/')
 
 
 def render_card_html(
@@ -46,21 +76,49 @@ def render_card_html(
         width = 160
         min_height = 90
 
-    # Build image HTML (conditional, for front side)
-    image_html = ""
+    # Build image box (conditional, for front side)
+    image_box = ""
     if include_image:
-        image_html = '<div class="img-placeholder">🖼️</div>'
+        image_path = card_data.get("image_path")
+        if image_path and Path(image_path).exists():
+            try:
+                rel = Path(image_path).relative_to(_PROJECT_ROOT)
+                img_url = f"/gradio_api/file={rel}".replace(os.sep, '/')
+                image_box = (
+                    '<div class="media-box media-box-image">'
+                    f'<img src="{img_url}" alt="Illustration" style="width:100%; border-radius:4px;">'
+                    '</div>'
+                )
+            except ValueError:
+                image_box = '<div class="media-box media-box-image">🖼️</div>'
+        else:
+            image_box = '<div class="media-box media-box-image img-placeholder">🖼️</div>'
 
-    # Build audio button HTML (conditional, for front side)
-    audio_html = ""
+    # Build audio box (conditional, for front side)
+    audio_box = ""
     if include_audio:
-        audio_html = '<span class="media-btn" title="Play audio">▶</span>'
+        audio_path = card_data.get("audio_path")
+        if audio_path and Path(audio_path).exists():
+            audio_url = _build_audio_url(audio_path)
+            audio_box = (
+                '<div class="media-box media-box-audio">'
+                f'<audio controls preload="none" style="width:100%; height:32px;">'
+                f'<source src="{audio_url}" type="audio/wav">'
+                '</audio></div>'
+            )
+        else:
+            audio_box = '<div class="media-box media-box-audio"><span class="media-btn" title="Generating audio...">▶</span></div>'
 
-    # Build front media row (only in normal mode — not Phase 1)
+    # Build front media boxes (only in normal mode — not Phase 1)
     if placeholder_back:
-        front_media_row = ""
+        front_media_boxes = ""
     else:
-        front_media_row = f'<div class="media-row" style="display:flex; gap:8px; margin-top:4px; align-items:center;">{audio_html}</div>'
+        parts = []
+        if image_box:
+            parts.append(image_box)
+        if audio_box:
+            parts.append(audio_box)
+        front_media_boxes = '<div class="media-boxes-row">' + ''.join(parts) + '</div>'
 
     # Build back text or placeholder
     if placeholder_back:
@@ -83,10 +141,10 @@ def render_card_html(
         justify-content: center;
         transform: rotate({rotation}deg);
         transition: all 0.2s ease;
+        overflow: hidden;
     " onmouseover="this.style.transform='rotate(0deg) scale(1.02)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.2)'" onmouseout="this.style.transform='rotate({rotation}deg)'; this.style.boxShadow='0 2px 6px rgba(0,0,0,0.15), 0 1px 2px rgba(0,0,0,0.1)'">
         <div class="front-text" style="font-size:0.95em; font-weight:bold; color:#2a1f0f; margin-bottom:6px; line-height:1.35; font-style:italic;">{front}</div>
-        {image_html}
-        {front_media_row}
+        {front_media_boxes}
         {back_html}
     </div>"""
 
