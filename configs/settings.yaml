@@ -17,13 +17,6 @@ models:
     file: tiny-aya-water-q4_k_m.gguf
     runtime: llama-cpp-python
     quant: q4_k_m
-  omnivoice:
-    repo: Serveurperso/OmniVoice-GGUF
-    files:
-      - omnivoice-base-Q8_0.gguf
-      - omnivoice-tokenizer-Q8_0.gguf
-    runtime: omnivoice.cpp
-    quant: Q8_0
   flux:
     repo: unsloth/FLUX.2-klein-4B-GGUF
     file: flux-2-klein-4b-Q4_K_M.gguf
