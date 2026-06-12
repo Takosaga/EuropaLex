@@ -8,6 +8,7 @@ Run: uv sync && python app.py
 """
 
 import logging
+from pathlib import Path
 
 import gradio as gr
 
@@ -180,13 +181,14 @@ def generate_media_async(
     cefr_level: str,
     batch_size: int,
     target_language: str = "Latvian",
+    include_audio: bool = False,
 ):
-    """Phase 2: Translate Phase 1 English text to Latvian via tiny-aya.
+    """Phase 2: Translate Phase 1 English text and optionally generate TTS audio.
 
     Reads the English texts from _phase1_texts (set by Phase 1 handler),
-    translates each sentence one-by-one, and yields progressive card updates
-    so cards appear incrementally as translations complete.
-    Images and audio toggles are not yet active — media fields remain empty.
+    translates each sentence one-by-one via tiny-aya, optionally generates
+    TTS audio for all translations via OmniVoice (voice design mode), and
+    yields progressive card updates so cards appear incrementally.
     """
     if not _phase1_texts:
         yield generate_progress_html(0, "⚠️ Please generate text first."), (
@@ -264,8 +266,28 @@ def generate_media_async(
 
         pct, label = _progress_pct(i, total)
         yield generate_progress_html(pct, label), generate_cards_html(
-            cards, include_image=False, include_audio=False, placeholder_back=False
+            cards, include_image=False, include_audio=include_audio, placeholder_back=False
         )
+
+    # Generate TTS audio for all translations if requested
+    if include_audio and cards:
+        yield generate_progress_html(70, "Generating audio..."), generate_cards_html(
+            cards, include_image=False, include_audio=True, placeholder_back=False
+        )
+        try:
+            tts_engine = pool.get_tts_engine()
+            output_dir = Path(config.models_dir) / "output" / "audio"
+            translations_list = [c["translation"] for c in cards]
+            audio_result = tts_engine.synthesize(translations_list, output_dir, language=target_language)
+            audio_paths = audio_result.audio_paths
+
+            # Attach audio paths to cards
+            for i, path in enumerate(audio_paths):
+                if path is not None:
+                    cards[i]["audio_path"] = path
+        except Exception as e:
+            logger.error("TTS generation failed: %s", e, exc_info=True)
+            # Cards remain without audio — user can retry
 
     # Final yield with 100%
     if not cards:
@@ -276,8 +298,9 @@ def generate_media_async(
             '</div>'
         )
     else:
-        yield generate_progress_html(100, "Translation complete!"), generate_cards_html(
-            cards, include_image=False, include_audio=False, placeholder_back=False
+        final_label = "Translation and audio complete!" if include_audio else "Translation complete!"
+        yield generate_progress_html(100, final_label), generate_cards_html(
+            cards, include_image=False, include_audio=include_audio, placeholder_back=False
         )
 
 
@@ -356,12 +379,12 @@ with gr.Blocks() as demo:
         for result in generate_text_async(scenario, cefr_level, batch_size):
             yield result
 
-    def _handle_media_generation(scenario, cefr_level, batch_size, target_language):
+    def _handle_media_generation(scenario, cefr_level, batch_size, target_language, include_audio):
         """Wrapper for generate_media_async that handles empty scenario and missing Phase 1 texts."""
         if not scenario.strip():
             yield generate_progress_html(0, "⚠️ Please enter a scenario or topic."), '<div style="color:#c44; padding:20px;">Please enter a scenario or topic to generate cards.</div>'
             return
-        for result in generate_media_async(scenario, cefr_level, batch_size, target_language):
+        for result in generate_media_async(scenario, cefr_level, batch_size, target_language, include_audio):
             yield result
 
     def _enable_phase2():
@@ -396,7 +419,7 @@ with gr.Blocks() as demo:
 
     generate_cards_btn.click(
         fn=_handle_media_generation,
-        inputs=[scenario_input, cefr_dropdown, batch_slider, language_dropdown],
+        inputs=[scenario_input, cefr_dropdown, batch_slider, language_dropdown, audio_toggle],
         outputs=[progress_html, card_output],
     ).then(
         fn=lambda: (gr.Button(visible=False), gr.Button(visible=False)),
