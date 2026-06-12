@@ -65,13 +65,13 @@ def render_card_html(
     # Adaptive dimensions based on enabled media
     if include_image and include_audio:
         width = 190
-        min_height = 200
+        min_height = 350
     elif include_image:
         width = 180
-        min_height = 170
+        min_height = 310
     elif include_audio:
         width = 180
-        min_height = 160
+        min_height = 270
     else:
         width = 160
         min_height = 90
