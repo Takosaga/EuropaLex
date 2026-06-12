@@ -380,8 +380,8 @@ with gr.Blocks() as demo:
                     elem_id="language-dropdown",
                 )
             with gr.Row():
-                audio_toggle = create_toggle("🔊 Audio", value=False, elem_id="toggle-audio")
-                images_toggle = create_toggle("🖼️ Images", value=False, elem_id="toggle-images")
+                audio_toggle = create_toggle("🔊 Audio", value=True, elem_id="toggle-audio")
+                images_toggle = create_toggle("🖼️ Images", value=True, elem_id="toggle-images")
 
             voice_dropdown = create_voice_dropdown()  # visible but disabled via CSS until Phase 2 + audio ON
 
@@ -412,12 +412,12 @@ with gr.Blocks() as demo:
     def _enable_phase2():
         """After text generation, enable toggles, dropdowns and Generate Cards button by removing disabled CSS.
 
-        Voice dropdown becomes interactive — it becomes visible when audio toggle is turned ON (via audio_toggle.change).
-        Explicitly sets value=False to prevent Gradio from resetting checkbox state on re-render.
+        Both Audio and Images toggles default to ON after Phase 1. Voice dropdown becomes interactive — it becomes visible when audio toggle is turned ON (via audio_toggle.change).
+        Explicitly sets value=True to prevent Gradio from resetting checkbox state on re-render.
         """
         return (
-            gr.Checkbox(interactive=True, value=False),
-            gr.Checkbox(interactive=True, value=False),
+            gr.Checkbox(interactive=True, value=True),
+            gr.Checkbox(interactive=True, value=True),
             gr.Button(interactive=True),
             gr.Dropdown(interactive=True),
             "",
