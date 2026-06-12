@@ -431,12 +431,17 @@ class TTSEngine:
         self._loaded = True
         logger.info("OmniVoice model loaded on %s", self.device)
 
-    def synthesize(self, texts: list[str], output_dir: Path) -> AudioResult:
-        """Generate audio for a batch of texts.
+    def synthesize(self, texts: list[str], output_dir: Path, language: str | None = None) -> AudioResult:
+        """Generate audio for a batch of texts using voice design mode.
+
+        Uses OmniVoice in voice design mode with a consistent female voice.
+        Optionally accepts a target language for improved synthesis quality.
 
         Args:
             texts: List of text strings to convert to speech.
             output_dir: Directory to save .wav files.
+            language: Target language name for TTS (e.g., "Latvian", "Spanish").
+                Improves synthesis quality when known. Defaults to None (auto-detect).
 
         Returns:
             AudioResult with absolute paths to generated audio files.
@@ -447,7 +452,11 @@ class TTSEngine:
         audio_paths = []
         for i, text in enumerate(texts):
             try:
-                audio_data = self._model.generate(text=text)
+                audio_data = self._model.generate(
+                    text=text,
+                    instruct="female speaking",
+                    language=language,
+                )
                 if audio_data and len(audio_data) > 0:
                     wav_path = output_dir / f"audio_{i}.wav"
                     sf.write(str(wav_path), audio_data[0], 24000)
