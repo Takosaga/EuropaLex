@@ -297,6 +297,7 @@ def generate_media_async(
 
     # Generate images for all translations if requested
     image_paths: list[str | None] = [None] * len(cards)
+    tts_generated = False
     if include_images and cards:
         yield generate_progress_html(70, "Generating images..."), generate_cards_html(
             cards, include_image=True, include_audio=tts_generated, placeholder_back=False
@@ -325,7 +326,6 @@ def generate_media_async(
     # Generate TTS audio for all translations if requested
     # Note: always include generated media in final output regardless of toggle state,
     # so previously generated audio/images remain accessible after toggling off.
-    tts_generated = False
     if include_audio and cards:
         yield generate_progress_html(85, "Generating audio..."), generate_cards_html(
             cards, include_image=include_images, include_audio=True, placeholder_back=False
