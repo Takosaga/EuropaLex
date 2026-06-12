@@ -20,28 +20,24 @@ class CEFRLevel(str, Enum):
     """Pre-Entry — No language knowledge yet."""
 
     A1 = "A1"
-    """Beginner — Very simple sentences (3–6 words), present tense only, basic vocabulary.
-    Topics: greetings, family, food, daily routine, immediate needs."""
+    """Beginner — Very simple sentences (3–6 words), present tense only, basic vocabulary."""
 
     A2 = "A2"
-    """Elementary — Short sentences (5–8 words), simple past/future introduced.
-    Topics: shopping, directions, weather, personal details, everyday situations."""
+    """Elementary — Short sentences (5–8 words), simple past/future introduced."""
 
     B1 = "B1"
-    """Intermediate — Medium sentences (8–12 words), conditionals and relative clauses.
-    Topics: travel, personal interests, opinions, simple connected text."""
+    """Intermediate — Medium sentences (8–12 words), conditionals and relative clauses."""
 
     B2 = "B2"
     """Upper-Intermediate — Longer sentences (10–15 words), complex grammar (passives,
-    reported speech). Topics: abstract ideas, arguments, professional contexts."""
+    reported speech)."""
 
     C1 = "C1"
     """Advanced — Long nuanced sentences (12–18+ words), idiomatic language,
-    implicit meaning. Topics: academic, professional, social fluency."""
+    implicit meaning."""
 
     C2 = "C2"
-    """Mastery — Near-native fluency, highly precise vocabulary, stylistic variation.
-    Topics: literary, technical, native-level comprehension."""
+    """Mastery — Near-native fluency, highly precise vocabulary, stylistic variation."""
 
     def label(self) -> str:
         """Return the short human-readable label (e.g. 'Beginner' for A1)."""
@@ -57,40 +53,37 @@ class CEFRLevel(str, Enum):
         return labels[self]
 
     def description(self) -> str:
-        """Return the full CEFR description for prompt generation.
+        """Return the CEFR linguistic guidance for prompt generation.
 
-        Returns guidance on sentence length, grammar complexity, and
-        recommended topics for the given proficiency level.
+        Returns guidance on sentence length, grammar complexity, and vocabulary
+        range for the given proficiency level — without topic constraints.
+        Topics should be provided separately via a free-form description.
         """
         descs = {
             CEFRLevel.A0: "Pre-Entry — No language knowledge yet.",
             CEFRLevel.A1: (
                 "Beginner — Very simple sentences (3–6 words), present tense only, "
-                "basic vocabulary. Topics: greetings, family, food, daily routine, "
-                "immediate needs."
+                "basic vocabulary."
             ),
             CEFRLevel.A2: (
                 "Elementary — Short sentences (5–8 words), simple past/future "
-                "introduced. Topics: shopping, directions, weather, personal details, "
-                "everyday situations."
+                "introduced."
             ),
             CEFRLevel.B1: (
                 "Intermediate — Medium sentences (8–12 words), conditionals and "
-                "relative clauses. Topics: travel, personal interests, opinions, "
-                "simple connected text."
+                "relative clauses."
             ),
             CEFRLevel.B2: (
                 "Upper-Intermediate — Longer sentences (10–15 words), complex grammar "
-                "(passives, reported speech). Topics: abstract ideas, arguments, "
-                "professional contexts."
+                "(passives, reported speech)."
             ),
             CEFRLevel.C1: (
                 "Advanced — Long nuanced sentences (12–18+ words), idiomatic language, "
-                "implicit meaning. Topics: academic, professional, social fluency."
+                "implicit meaning."
             ),
             CEFRLevel.C2: (
                 "Mastery — Near-native fluency, highly precise vocabulary, stylistic "
-                "variation. Topics: literary, technical, native-level comprehension."
+                "variation."
             ),
         }
         return descs[self]
@@ -103,7 +96,8 @@ class CardData(BaseModel):
     translation: str  # Target-language translation (empty during Phase 1)
     audio_path: str | None = None  # Path to generated TTS audio (.wav)
     image_path: str | None = None  # Path to generated illustration (.png)
-    cefr_level: CEFRLevel = CEFRLevel.B1  # Proficiency level
+    cefr_level: CEFRLevel = CEFRLevel.B1  # CEFR proficiency level — applies to both English text and target-language translation
+    topic_description: str = ""  # Free-form description of topics/themes for generation
 
 
 class ValidationError(RuntimeError):
@@ -218,6 +212,7 @@ class EngineConfig(BaseModel):
     minicpm_model_path: str  # Path to MiniCPM5-1B Q8_0 GGUF file
     device: str = "cuda"  # "cuda", "mps", or "cpu"
     batch_size: int = 3
+    target_language: str = "Latvian"  # Target language for Phase 2 translation
 
     # llama-cli generation parameters (Nemotron / TextEngine)
     n_ctx: int = 4096  # Context length in tokens
@@ -273,6 +268,7 @@ class EngineConfig(BaseModel):
             minicpm_model_path=str(Path(models.get("directory", ".local/models")) / "minicpm" / models["minicpm"]["file"]),
             device=device,
             batch_size=batch.get("default_size", 3),
+            target_language=raw.get("target_language", "Latvian"),
             n_ctx=gen.get("n_ctx", 4096),
             n_threads=gen.get("n_threads", 5),
             n_batch=gen.get("n_batch", 4096),

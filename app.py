@@ -18,6 +18,11 @@ from frontend.ui.cards import render_card_html, generate_cards_html, generate_pr
 from frontend.ui.widgets import create_toggle
 
 
+# ─── Phase State ────────────────────────────────────────────────────
+
+_phase1_texts: list[str] = []  # English texts from Phase 1, passed to Phase 2
+
+
 # ─── Mock Card Data ────────────────────────────────────────────────
 
 MOCK_CARDS = {
@@ -119,6 +124,7 @@ def generate_text_async(
             scenario=scenario,
             cefr_level=cefr,
             batch_size=batch_size,
+            topic_description=scenario,  # user's free-form topic description
         )
     except Exception as e:
         logger.error("Phase 1 generation failed: %s", e, exc_info=True)
@@ -136,43 +142,143 @@ def generate_text_async(
         )
         return
 
+    # Store Phase 1 texts for Phase 2 (module-level state)
+    global _phase1_texts
+    _phase1_texts = list(texts.generated_texts)
+
     # Convert TextResult to card dicts for rendering
-    cards = [{"text": t, "translation": "", "cefr_level": cefr} for t in texts.generated_texts]
+    cards = [
+        {"text": t, "translation": "", "cefr_level": cefr, "topic_description": scenario}
+        for t in texts.generated_texts
+    ]
 
     yield generate_progress_html(60, "Generating text..."), ""
     yield generate_progress_html(100, "Text ready! Adjust media toggles and click Generate Cards."), generate_cards_html(cards, include_image=False, include_audio=False, placeholder_back=True)
+
+
+def _progress_pct(translated_idx: int, total: int) -> tuple[float, str]:
+    """Calculate progress percentage and label for per-sentence translation.
+
+    Args:
+        translated_idx: Index of the sentence just completed (0-based).
+        total: Total number of sentences to translate.
+
+    Returns:
+        (percentage, label) tuple.
+    """
+    if total <= 1:
+        return 100.0, "Translation complete!"
+    pct = ((translated_idx + 1) / total) * 100
+    remaining = total - (translated_idx + 1)
+    if pct >= 100:
+        return 100.0, "Translation complete!"
+    return round(pct, 1), f"Translated {translated_idx + 1}/{total} — {remaining} remaining..."
 
 
 def generate_media_async(
     scenario: str,
     cefr_level: str,
     batch_size: int,
-    include_images: bool,
-    include_audio: bool,
+    target_language: str = "Latvian",
 ):
-    """Phase 2: Add translations, images, and audio to existing text cards.
+    """Phase 2: Translate Phase 1 English text to Latvian via tiny-aya.
 
-    Takes the same parameters as Phase 1 plus media toggles.
-    Re-renders cards with actual translation text and optional media.
+    Reads the English texts from _phase1_texts (set by Phase 1 handler),
+    translates each sentence one-by-one, and yields progressive card updates
+    so cards appear incrementally as translations complete.
+    Images and audio toggles are not yet active — media fields remain empty.
     """
-    raw_cards = MOCK_CARDS.get(cefr_level, MOCK_CARDS["B1"])
-    selected_raw = raw_cards[:batch_size]
-
-    if not selected_raw:
-        yield generate_progress_html(0, "No cards available"), '<div style="color:#8b7355; padding:20px;">No cards available for this level.</div>'
+    if not _phase1_texts:
+        yield generate_progress_html(0, "⚠️ Please generate text first."), (
+            '<div style="color:#c44; padding:20px;">'
+            'No Phase 1 text found. Generate English text first, then click "Generate Cards".'
+            '</div>'
+        )
         return
 
-    # Transform to two-phase format with actual translations
-    cards = transform_mock_cards(selected_raw)
+    try:
+        config = EngineConfig.from_settings_yaml()
+        pool = EnginePool.get(config)
+        cefr = CEFRLevel(cefr_level)
+    except FileNotFoundError as e:
+        logger.error("Phase 2 model not found: %s", e)
+        yield generate_progress_html(0, f"\u26a0\ufe0f Model file missing: {e}"), (
+            '<div style="color:#c44; padding:20px;">'
+            '<strong>Model file not found.</strong><br>'
+            f'{e}<br><br>'
+            'Run <code>python models/download_models.py tiny_aya</code> to download tiny-aya-water, '
+            'or check <code>configs/settings.yaml</code> for the correct path.'
+            '</div>'
+        )
+        return
+    except Exception as e:
+        logger.error("Phase 2 setup failed: %s", e, exc_info=True)
+        yield generate_progress_html(0, f"\u26a0\ufe0f Setup error: {e}"), (
+            '<div style="color:#c44; padding:20px;">'
+            f'<strong>Failed to initialize engine.</strong><br>{e}<br><br>'
+            'Check <code>configs/settings.yaml</code> and run the smoke test: '
+            '<code>python scripts/smoke_test.py</code>'
+            '</div>'
+        )
+        return
 
-    # Render with full media (no placeholder — translation text is real)
-    phase_cards_full = generate_cards_html(
-        cards,
-        include_image=include_images,
-        include_audio=include_audio,
-        placeholder_back=False,
-    )
-    yield generate_progress_html(100, "Generation complete!"), phase_cards_full
+    yield generate_progress_html(10, "Preparing translation engine..."), ""
+
+    # Get the translation engine (lazy-loads tiny-aya)
+    try:
+        translation_engine = pool.get_translation_engine()
+    except Exception as e:
+        logger.error("Phase 2 failed to get translation engine: %s", e, exc_info=True)
+        err_detail = str(e)
+        yield generate_progress_html(0, f"\u26a0\ufe0f Engine error: {err_detail}"), (
+            '<div style="color:#c44; padding:20px;">'
+            f'<strong>Failed to initialize translation engine.</strong><br>'
+            f'{err_detail}<br><br>'
+            'Check <code>configs/settings.yaml</code> for the model path.'
+            '</div>'
+        )
+        return
+
+    # Build cards one-by-one — each sentence translated individually
+    cards: list[dict] = []
+    total = len(_phase1_texts)
+
+    for i, english_text in enumerate(_phase1_texts):
+        try:
+            translation = translation_engine._translate_single(
+                english_text, cefr,
+                topic_description=scenario,
+                target_language=target_language,
+            )
+        except Exception as e:
+            logger.error("Translation failed for sentence %d: %s", i, e, exc_info=True)
+            # Fallback: use English text as translation
+            translation = english_text
+
+        cards.append({
+            "text": english_text,
+            "translation": translation,
+            "cefr_level": cefr,
+            "topic_description": scenario,
+        })
+
+        pct, label = _progress_pct(i, total)
+        yield generate_progress_html(pct, label), generate_cards_html(
+            cards, include_image=False, include_audio=False, placeholder_back=False
+        )
+
+    # Final yield with 100%
+    if not cards:
+        yield generate_progress_html(0, "\u26a0\ufe0f No translations produced."), (
+            '<div style="color:#c44; padding:20px;">'
+            '<strong>Translation failed.</strong><br>No translations were produced. '
+            'Check the terminal for error details.'
+            '</div>'
+        )
+    else:
+        yield generate_progress_html(100, "Translation complete!"), generate_cards_html(
+            cards, include_image=False, include_audio=False, placeholder_back=False
+        )
 
 
 # ─── Gradio UI Construction ──────────────────────────────────────
@@ -208,6 +314,12 @@ with gr.Blocks() as demo:
                     label="Number of Cards",
                     elem_id="batch-slider",
                 )
+                language_dropdown = gr.Dropdown(
+                    label="Target Language",
+                    choices=["Latvian", "Spanish", "French", "German", "Polish", "Italian", "Portuguese", "Finnish"],
+                    value="Latvian",
+                    elem_id="language-dropdown",
+                )
 
             # Phase 1 button: Generate Text
             generate_text_btn = gr.Button("Generate Text", elem_id="generate-btn")
@@ -217,8 +329,8 @@ with gr.Blocks() as demo:
 
             # Phase 2 controls: toggles + button (below cards)
             with gr.Row():
-                images_toggle = create_toggle("🖼️ Images", value=True, elem_id="toggle-images")
-                audio_toggle = create_toggle("🔊 Audio", value=True, elem_id="toggle-audio")
+                images_toggle = create_toggle("🖼️ Images", value=False, elem_id="toggle-images")
+            audio_toggle = create_toggle("🔊 Audio", value=False, elem_id="toggle-audio")
 
             generate_cards_btn = gr.Button("Generate Cards", elem_id="generate-cards-btn", variant="secondary")
 
@@ -244,12 +356,12 @@ with gr.Blocks() as demo:
         for result in generate_text_async(scenario, cefr_level, batch_size):
             yield result
 
-    def _handle_media_generation(scenario, cefr_level, batch_size, images_on, audio_on):
-        """Wrapper for generate_media_async that handles empty scenario."""
+    def _handle_media_generation(scenario, cefr_level, batch_size, target_language):
+        """Wrapper for generate_media_async that handles empty scenario and missing Phase 1 texts."""
         if not scenario.strip():
             yield generate_progress_html(0, "⚠️ Please enter a scenario or topic."), '<div style="color:#c44; padding:20px;">Please enter a scenario or topic to generate cards.</div>'
             return
-        for result in generate_media_async(scenario, cefr_level, batch_size, images_on, audio_on):
+        for result in generate_media_async(scenario, cefr_level, batch_size, target_language):
             yield result
 
     def _enable_phase2():
@@ -284,7 +396,7 @@ with gr.Blocks() as demo:
 
     generate_cards_btn.click(
         fn=_handle_media_generation,
-        inputs=[scenario_input, cefr_dropdown, batch_slider, images_toggle, audio_toggle],
+        inputs=[scenario_input, cefr_dropdown, batch_slider, language_dropdown],
         outputs=[progress_html, card_output],
     ).then(
         fn=lambda: (gr.Button(visible=False), gr.Button(visible=False)),
@@ -296,6 +408,7 @@ with gr.Blocks() as demo:
     scenario_input.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css])
     cefr_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css])
     batch_slider.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css])
+    language_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css])
 
 
 if __name__ == "__main__":
