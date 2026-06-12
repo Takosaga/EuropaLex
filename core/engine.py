@@ -75,7 +75,14 @@ class MiniCPMTextEngine:
         self._loaded = True
         logger.info("MiniCPMTextEngine loaded %s on %s", self.model_path.name, self.device)
 
-    def generate(self, texts: list[str], scenario: str, cefr_level: CEFRLevel, batch_size: int | None = None) -> TextResult:
+    def generate(
+        self,
+        texts: list[str],
+        scenario: str,
+        cefr_level: CEFRLevel,
+        batch_size: int | None = None,
+        topic_description: str = "",
+    ) -> TextResult:
         """Generate English sentences using the loaded GGUF model.
 
         Delegates to :func:`core.text_gen.generate_sentences` for LLM calling,
@@ -84,8 +91,9 @@ class MiniCPMTextEngine:
         Args:
             texts: Empty list (generation mode). Non-empty would be translation mode.
             scenario: Scenario/topic description for text generation.
-            cefr_level: CEFR proficiency level.
+            cefr_level: CEFR proficiency level (linguistic guidance only).
             batch_size: Number of sentences to generate.
+            topic_description: Free-form description of topics/themes.
 
         Returns:
             TextResult with exactly one sentence per requested batch size.
@@ -99,7 +107,7 @@ class MiniCPMTextEngine:
 
         from core.text_gen import generate_sentences
 
-        sentences = generate_sentences(scenario, cefr_level, batch_size, self._llm)
+        sentences = generate_sentences(scenario, cefr_level, batch_size, self._llm, topic_description)
         return TextResult(generated_texts=sentences)
 
     def unload(self) -> None:
@@ -126,17 +134,24 @@ class LlamaCppTextEngine:
     keeping the model in Python memory is efficient and avoids subprocess overhead.
     """
 
-    def __init__(self, model_path: str, device: str = "cuda"):
+    def __init__(
+        self,
+        model_path: str,
+        device: str = "cuda",
+        target_language: str = "Latvian",
+    ):
         """Initialize the translation engine.
 
         Args:
             model_path: Absolute path to the GGUF model file.
             device: Device hint (informational; n_gpu_layers=99 used for CUDA).
+            target_language: Target language for translations (e.g. "Latvian").
         """
         self.model_path = Path(model_path)
         if not self.model_path.exists():
             raise FileNotFoundError(f"Model not found: {self.model_path}")
         self.device = device
+        self.target_language = target_language
         self._llm = None
         self._loaded = False
 
@@ -162,44 +177,208 @@ class LlamaCppTextEngine:
         self._loaded = True
         logger.info("LlamaCppTextEngine loaded %s on %s", self.model_path.name, self.device)
 
-    def generate(self, texts: list[str], scenario: str, cefr_level: CEFRLevel, batch_size: int | None = None) -> TextResult:
+    def _translate_single(
+        self,
+        text: str,
+        cefr_level: CEFRLevel,
+        topic_description: str = "",
+        target_language: str | None = None,
+    ) -> str:
+        """Translate a single English sentence with retry loop.
+
+        Uses ``create_chat_completion`` so the model's chat template (with
+        special tokens like ``<|USER_TOKEN|>``) is applied correctly. Raw
+        prompt strings bypass the chat template and produce poor output.
+
+        Wraps the LLM call in a retry loop (max 3 attempts). Returns the
+        translated string or falls back to the original English text on failure.
+
+        Args:
+            text: Single English sentence to translate.
+            cefr_level: CEFR proficiency level (linguistic guidance only).
+            topic_description: Free-form description of topics/themes (for context).
+            target_language: Override target language for this call only.
+                Defaults to ``self.target_language`` from config.
+
+        Returns:
+            Translated string, or the original English text as fallback.
+        """
+        self._load_model()
+        effective_lang = target_language or self.target_language
+        base_messages = [
+            {
+                "role": "system",
+                "content": (
+                    f"You are a professional translator. Translate English sentences into "
+                    f"{effective_lang} at the specified CEFR level. Output ONLY the translation, "
+                    f"one line. No explanations, no notes, no source text repetition."
+                ),
+            }
+        ]
+        last_messages: list = []
+
+        for attempt in range(1, 4):
+            messages = list(base_messages)
+            if attempt > 1 and last_messages:
+                # Append failed output + retry instruction in conversation context
+                messages.extend(last_messages)
+
+            messages.append({
+                "role": "user",
+                "content": self._build_single_translation_prompt(
+                    text, cefr_level, topic_description, effective_lang,
+                ),
+            })
+
+            output = self._llm.create_chat_completion(
+                messages=messages,
+                max_tokens=128,
+                temperature=0.3,
+            )
+
+            raw_text = output.get("choices", [{}])[0].get("message", {}).get("content", "")
+            last_messages = [
+                {"role": "assistant", "content": raw_text},
+            ]
+            line = raw_text.strip()
+
+            # Validate: must be a single non-empty line, not repetitive garbage
+            if line and self._is_valid_translation(line):
+                logger.info(
+                    "LlamaCppTextEngine: translated '%s' on attempt %d -> '%s'",
+                    text[:30], attempt, line[:40],
+                )
+                return line
+
+            # Invalid output — retry with stricter prompt in context
+            if attempt < 3:
+                last_messages.append({
+                    "role": "user",
+                    "content": (
+                        f"That output was invalid. Translate ONLY this sentence into {effective_lang}:\n"
+                        f"{text}\n\n"
+                        f"Output ONE line only — the translation. Nothing else."
+                    ),
+                })
+                logger.warning(
+                    "LlamaCppTextEngine attempt %d: invalid output for '%s' — retrying",
+                    attempt, text[:30],
+                )
+            else:
+                logger.warning(
+                    "LlamaCppTextEngine: exhausted retries for '%s'. Falling back to English.",
+                    text[:30],
+                )
+
+        # Exhausted retries — fall back to original English text
+        logger.info("LlamaCppTextEngine: fallback to English for '%s'", text[:30])
+        return text
+
+    def _is_valid_translation(self, line: str) -> bool:
+        """Check if a translation output is valid (single line, not repetitive garbage).
+
+        Args:
+            line: The raw model output to validate.
+
+        Returns:
+            True if the output looks like a reasonable translation.
+        """
+        if not line or len(line) < 2:
+            return False
+
+        # Reject if it contains multiple lines (model generated too much)
+        if "\n" in line:
+            return False
+
+        # Reject if it's just the English text back (no translation happened)
+        lower = line.lower()
+        if any(word in lower for word in ["translate", "translation", "english"]):
+            return False
+
+        # Reject very short outputs that are likely noise
+        words = line.split()
+        if len(words) < 1:
+            return False
+
+        return True
+
+    def generate(
+        self,
+        texts: list[str],
+        scenario: str,
+        cefr_level: CEFRLevel,
+        batch_size: int | None = None,
+        topic_description: str = "",
+    ) -> TextResult:
         """Generate translations using the loaded GGUF model.
+
+        Translates each sentence individually for better quality with small models.
+        Falls back to English text on failure (after max retries).
 
         Args:
             texts: English sentences to translate.
-            scenario: Scenario/topic description (not used with this model).
-            cefr_level: CEFR proficiency level.
-            batch_size: Not used.
+            scenario: Scenario/topic description (contextual).
+            cefr_level: CEFR proficiency level (linguistic guidance only).
+            batch_size: Number of translations expected.
+            topic_description: Free-form description of topics/themes (contextual).
 
         Returns:
             TextResult with one translation per input text.
 
         Raises:
-            RuntimeError: If generation fails.
+            ValidationError: If generation fails after max attempts and no lines produced.
         """
         self._load_model()
-        prompt = self._build_translation_prompt(texts, cefr_level)
+        if batch_size is None:
+            raise ValueError("batch_size is required for translation")
 
-        output = self._llm(
-            prompt=prompt,
-            max_tokens=512,
-            temperature=0.7,
-            echo=False,
-        )
+        translations = []
+        for text in texts:
+            translated = self._translate_single(text, cefr_level, topic_description)
+            translations.append(translated)
 
-        text = output.get("choices", [{}])[0].get("text", "")
-        lines = [line.strip() for line in text.strip().split("\n") if line.strip()]
-        return TextResult(generated_texts=lines)
+        return TextResult(generated_texts=translations)
 
-    def _build_translation_prompt(self, texts: list[str], cefr_level: CEFRLevel) -> str:
-        """Build prompt for translation."""
-        text_lines = "\n".join(texts)
-        target_lang = "Latvian"  # Default; can be parameterized later
+    def _build_single_translation_prompt(
+            self,
+            text: str,
+            cefr_level: CEFRLevel,
+            topic_description: str = "",
+            target_language: str | None = None,
+    ) -> str:
+        """Build prompt for translating a single sentence.
+
+        Optimized for small models (tiny-aya-water ~3.3B params). Produces
+        natural, idiomatic output by emphasizing how native speakers actually
+        phrase things — not literal word-for-word translation.
+
+        Uses CEFR linguistic guidance only — no hardcoded topics.
+
+        Args:
+            text: English sentence to translate.
+            cefr_level: CEFR proficiency level.
+            topic_description: Free-form context for the translation.
+            target_language: Language to translate into. Defaults to ``self.target_language``.
+        """
+        target_lang = target_language or self.target_language
+        cefr_desc = cefr_level.description()
+        topic_hint = f" Context: {topic_description}." if topic_description else ""
         return (
-            f"You are a translator. Translate the following {cefr_level.value} English text into {target_lang}.\n"
-            f"Translate these sentences, one per line, in order:\n"
-            f"{text_lines}\n"
-            "Output ONLY the translations, one per line. No explanations."
+            f"Translate the following English sentence into {target_lang}.{topic_hint}\n"
+            f"CEFR linguistic guidance: {cefr_desc}.\n\n"
+            f"CRITICAL — NATURAL LANGUAGE RULES:\n"
+            f"1. Produce how a native speaker at this CEFR level would naturally express this idea in {target_lang}.\n"
+            f"2. Do NOT translate word-for-word. Capture the meaning and rephrase it naturally in {target_lang}.\n"
+            f"3. Use common idiomatic expressions, colloquial phrasing, and everyday vocabulary appropriate for the level.\n"
+            f"4. Follow the grammar patterns typical of {target_lang} — not English sentence structure.\n"
+            f"5. If the English uses an awkward or literal construction, render it as a native speaker would say it.\n\n"
+            f"Rules:\n"
+            f"1. Output ONLY the translated sentence — one line, nothing else.\n"
+            f"2. Do NOT include explanations, notes, labels, or quotation marks.\n"
+            f"3. Do NOT repeat the English text in your output.\n"
+            f"4. Match the CEFR linguistic complexity for the target level.\n\n"
+            f"English: {text}\n"
+            f"{target_lang}:"
         )
 
     def unload(self) -> None:
@@ -457,6 +636,7 @@ class EnginePool:
             self._state.translation_engine = LlamaCppTextEngine(
                 model_path=self._config.llm_model_path,
                 device=self._config.device,
+                target_language=self._config.target_language,
             )
         return self._state.translation_engine
 

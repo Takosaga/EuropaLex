@@ -95,15 +95,16 @@ EuropaLex generates flashcards in two phases: English text first (Phase 1), then
 
 > **Note:** Translation is deferred to Phase 2. Phase 1 produces English-only cards.
 
-### Phase 2 — Generate Translation + Media (deferred)
+### Phase 2 — Generate Translation + Media
 
-1. After Phase 1 completes, the **Images** and **Audio** toggles become active
-2. Toggle on whichever media types you want (images, audio, or both)
-3. Click **Generate Cards**
-4. The app translates via tiny-aya-water (`LlamaCppTextEngine`), then calls OmniVoice for TTS and FLUX.2 for images
-5. Cards update: translation moves to the front, English stays on the back; image and audio controls appear on the front side
+1. Select a target language from the **Target Language** dropdown (Latvian, Spanish, French, German, Polish, Italian, Portuguese, Finnish)
+2. After Phase 1 completes, the **Images** and **Audio** toggles become active (unchecked by default)
+3. Toggle on whichever media types you want (images, audio, or both)
+4. Click **Generate Cards**
+5. The app translates via tiny-aya-water (`LlamaCppTextEngine`) with retry validation
+6. Cards update: translation moves to the front, English stays on the back; image and audio controls will appear when media engines are integrated
 
-> **Note:** Phase 2 is currently deferred — the UI shows mock data until translation + media integration is complete.
+> **Note:** Phase 1 → Phase 2 translation is now live. Images and audio toggles are available but media generation is not yet wired — those fields remain empty.
 
 ### Export
 
@@ -116,7 +117,7 @@ EuropaLex is organized into five main modules:
 
 | Module | Purpose |
 |---|---|
-| `core/` | Data types (`types.py`), inference engines (`engine.py`), sentence extraction & generation helpers (`text_gen.py`), Phase 2 placeholder (`pipeline.py`) |
+| `core/` | Data types (`types.py`), inference engines (`engine.py`), sentence extraction & generation helpers (`text_gen.py`), Phase 2 translation orchestration (`pipeline.py`) |
 | `frontend/` | Gradio 6 UI: styled toggles (`widgets.py`), card rendering with two-phase layout (`cards.py`), custom CSS (`css/custom.css`) |
 | `models/` | Hugging Face Hub model downloader — fetches models at runtime, no git submodules |
 | `export/` | `.apkg` Anki package generator, CSV export, Anki tunnel sync via MCP server |
@@ -125,17 +126,17 @@ EuropaLex is organized into five main modules:
 ### Data Flow
 
 ```
-User Input → [Gradio UI] → EnginePool (singleton) → MiniCPMTextEngine/TTS/ImageGen → Card Gallery → Export (.apkg / .csv)
+User Input → [Gradio UI] → EnginePool (singleton) → MiniCPMTextEngine (Phase 1) → pipeline.generate_phase2() → LlamaCppTextEngine (translation, Phase 2) → Card Gallery → Export (.apkg / .csv)
 ```
 
 - **Inference:** `core/engine.py` defines five engine classes:
   - `MiniCPMTextEngine` — llama-cpp-python wrapper for MiniCPM5-1B Q8_0 (lazy-load/unload, ~1.1 GB RAM, uses apply_chat_template). Uses `TextResult.validate_and_parse()` to strip `<thinking>` tags and enforce exact sentence count; retries with stricter prompts on mismatch (max 3 attempts). Used in Phase 1 for English text generation only.
-  - `LlamaCppTextEngine` — llama-cpp-python wrapper for tiny-aya-water translation (lazy-load/unload, ~2 GB VRAM). Used in Phase 2 for translation.
+  - `LlamaCppTextEngine` — llama-cpp-python wrapper for tiny-aya-water translation (lazy-load/unload, ~2 GB VRAM). Validates output line count against `batch_size`; retries with stricter prompts on mismatch (max 3 attempts). Used in Phase 2 for translation.
   - `TTSEngine` — OmniVoice Python package with lazy-load/unload cycle (GPU memory managed by EnginePool). Used in Phase 2 for TTS audio.
   - `ImageGenEngine` — diffusers Flux2KleinPipeline with lazy-load/unload cycle (GPU memory managed by EnginePool). Used in Phase 2 for images.
   - `EnginePool` — singleton orchestrator enforcing mutual exclusion between all GPU engines. Phase 1 uses only `MiniCPMTextEngine` (~1.1 GB RAM). Phase 2 loads GPU engines sequentially: translation → TTS/images.
 - **Types:** `core/types.py` provides Pydantic models (`CardData`, `CEFRLevel`, `ValidationError`, `TextResult`, `AudioResult`, `ImageResult`, `EngineConfig`) for type-safe boundaries. `TextResult.generated_texts` replaces the legacy `.translations`; `AudioResult.audio_paths` and `ImageResult.image_paths` are `list[str | None]` (never None at top level).
-- **Pipeline:** `core/pipeline.py` is a Phase 2 placeholder — currently empty. Will orchestrate batch generation (text → audio + images) when implemented.
+- **Pipeline:** `core/pipeline.py` provides `generate_phase2()` — a generator function that yields `(progress_percent, phase_label, cards)` tuples for real-time UI updates. Extends this when adding new media types (TTS, images).
 - **Frontend:** `frontend/ui/cards.py` renders individual cards as HTML with conditional media elements; `generate_cards_html()` layouts them in a flex gallery with natural rotation offsets.
 - **Export:** `export/apkg_generator.py` builds Anki packages; `export/csv_export.py` writes tabular data; `export/anki_tunnel.py` communicates with the Anki MCP tunnel server.
 
@@ -155,7 +156,7 @@ EuropaLex/
 │   ├── types.py            # Pydantic models: CardData, CEFRLevel, TextResult, AudioResult, ImageResult, EngineConfig
 │   ├── engine.py           # MiniCPMTextEngine (MiniCPM5-1B/llama-cpp-python), LlamaCppTextEngine (tiny-aya/llama-cpp-python), TTSEngine (OmniVoice), ImageGenEngine (diffusers), EnginePool singleton
 │   ├── text_gen.py         # Sentence extraction (extract_sentences) and generation with retry loop (generate_sentences)
-│   └── pipeline.py         # Phase 2 placeholder — keep empty until implementation
+│   └── pipeline.py         # Phase 2 translation orchestration — generate_phase2() generator with progress tracking
 ├── frontend/               # Gradio 6 UI
 │   ├── __init__.py
 │   ├── ui/
@@ -187,4 +188,4 @@ EuropaLex/
 `[A0, A1, A2, B1, B2, C1, C2]`
 
 - **A0:** Uses curated common words list (no text generation model needed)
-- **A1–C2:** MiniCPM5-1B generates English sentences at the selected level in Phase 1; tiny-aya-water translates them in Phase 2 (deferred)
+- **A1–C2:** MiniCPM5-1B generates English sentences at the selected level in Phase 1; tiny-aya-water translates them in Phase 2
