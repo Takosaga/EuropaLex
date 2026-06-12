@@ -208,7 +208,7 @@ class EngineConfig(BaseModel):
     """Validated engine configuration loaded from settings.yaml."""
 
     models_dir: str = ".local/models"
-    llm_model_path: str  # Path to TildeOpen GGUF file
+    llm_model_path: str  # Path to translation model GGUF file
     minicpm_model_path: str  # Path to MiniCPM5-1B Q8_0 GGUF file
     device: str = "cuda"  # "cuda", "mps", or "cpu"
     batch_size: int = 3
@@ -262,10 +262,12 @@ class EngineConfig(BaseModel):
 
         gen = raw.get("generation", {})
 
+        models_dir = Path(models.get("directory", ".local/models"))
+
         return cls(
-            models_dir=models.get("directory", ".local/models"),
-            llm_model_path=str(Path(models.get("directory", ".local/models")) / llm_subdir / llm_cfg["file"]),
-            minicpm_model_path=str(Path(models.get("directory", ".local/models")) / "minicpm" / models["minicpm"]["file"]),
+            models_dir=str(models_dir),
+            llm_model_path=str(models_dir / llm_subdir / llm_cfg["file"]),
+            minicpm_model_path=str(models_dir / "minicpm" / models["minicpm"]["file"]),
             device=device,
             batch_size=batch.get("default_size", 3),
             target_language=raw.get("target_language", "Latvian"),
