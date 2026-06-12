@@ -168,22 +168,29 @@ def generate_text_async(
     yield generate_progress_html(100, "Text ready! Adjust media toggles and click Generate Cards."), generate_cards_html(cards, include_image=False, include_audio=False, placeholder_back=True)
 
 
-def _progress_pct(translated_idx: int, total: int) -> tuple[float, str]:
-    """Calculate progress percentage and label for per-sentence translation.
+def _progress_pct(
+    translated_idx: int,
+    total: int,
+    start_pct: float = 15.0,
+    end_pct: float = 70.0,
+) -> tuple[float, str]:
+    """Calculate progress percentage for translation within a given range.
 
     Args:
         translated_idx: Index of the sentence just completed (0-based).
         total: Total number of sentences to translate.
+        start_pct: Starting percentage for this phase (default 15% after preparation).
+        end_pct: Ending percentage for this phase (default 70% before next phase).
 
     Returns:
         (percentage, label) tuple.
     """
     if total <= 1:
-        return 100.0, "Translation complete!"
-    pct = ((translated_idx + 1) / total) * 100
+        return end_pct, "Translation complete!"
+    pct = start_pct + ((translated_idx + 1) / total) * (end_pct - start_pct)
     remaining = total - (translated_idx + 1)
-    if pct >= 100:
-        return 100.0, "Translation complete!"
+    if pct >= end_pct:
+        return end_pct, "Translation complete!"
     return round(pct, 1), f"Translated {translated_idx + 1}/{total} — {remaining} remaining..."
 
 
@@ -283,18 +290,44 @@ def generate_media_async(
             "topic_description": scenario,
         })
 
-        pct, label = _progress_pct(i, total)
+        pct, label = _progress_pct(i, total, start_pct=15.0, end_pct=70.0)
         yield generate_progress_html(pct, label), generate_cards_html(
             cards, include_image=include_images, include_audio=include_audio, placeholder_back=False
         )
 
+    # Generate images for all translations if requested
+    image_paths: list[str | None] = [None] * len(cards)
+    if include_images and cards:
+        yield generate_progress_html(70, "Generating images..."), generate_cards_html(
+            cards, include_image=True, include_audio=tts_generated, placeholder_back=False
+        )
+        try:
+            img_engine = pool.get_image_engine()
+            output_dir = Path(config.models_dir) / "output" / "images"
+            # Build prompts from English text + CEFR level
+            prompts = []
+            for card in cards:
+                prompt = (
+                    f"Simple educational illustration for language learning: {card['text']}. "
+                    f"Level: {cefr.value}. No text in image."
+                )
+                prompts.append(prompt)
+            image_result = img_engine.generate(prompts, output_dir)
+            image_paths = image_result.image_paths
+            # Attach image paths to cards
+            for i, path in enumerate(image_paths):
+                if path is not None:
+                    cards[i]["image_path"] = path
+        except Exception as e:
+            logger.error("Image generation failed: %s", e, exc_info=True)
+            # Cards remain without images — user can retry
+
     # Generate TTS audio for all translations if requested
     # Note: always include generated media in final output regardless of toggle state,
     # so previously generated audio/images remain accessible after toggling off.
-    # Image generation not yet implemented — image paths are None.
     tts_generated = False
     if include_audio and cards:
-        yield generate_progress_html(70, "Generating audio..."), generate_cards_html(
+        yield generate_progress_html(85, "Generating audio..."), generate_cards_html(
             cards, include_image=include_images, include_audio=True, placeholder_back=False
         )
         try:
@@ -323,7 +356,13 @@ def generate_media_async(
             '</div>'
         )
     else:
-        final_label = "Translation and audio complete!" if tts_generated else "Translation complete!"
+        if include_images:
+            if tts_generated:
+                final_label = "Translation, images, and audio complete!"
+            else:
+                final_label = "Translation and images complete!"
+        else:
+            final_label = "Translation and audio complete!" if tts_generated else "Translation complete!"
         # Always include generated media regardless of toggle state so previously
         # generated audio/images remain accessible after toggling off/on.
         yield generate_progress_html(100, final_label), generate_cards_html(
