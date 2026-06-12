@@ -50,4 +50,5 @@ def create_voice_dropdown(default_voice: str = "female, young adult") -> "gr.Dro
         choices=choices,
         value=default_voice,
         elem_id="voice-dropdown",
+        allow_custom_value=True,
     )
