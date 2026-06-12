@@ -1,14 +1,14 @@
 """EuropaLex Pipeline — Phase 2 orchestration.
 
 Receives English texts generated in Phase 1 and produces translated
-CardData objects via tiny-aya-water translation engine.
-
-Images and audio are not yet wired — those fields remain empty.
+CardData objects via tiny-aya-water translation engine, with optional
+TTS audio generation using OmniVoice voice design mode.
 """
 
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Iterator
 
 from core.engine import EnginePool
@@ -22,11 +22,14 @@ def generate_phase2(
     scenario: str,
     cefr_level: CEFRLevel,
     batch_size: int,
+    target_language: str = "Latvian",
+    include_audio: bool = False,
 ) -> Iterator[tuple[int, str, list[CardData]]]:
-    """Generate Latvian translations for Phase 1 English texts.
+    """Generate translations and optional TTS audio for Phase 1 English texts.
 
     Orchestrates the translation pipeline: gets the tiny-aya engine,
-    calls generate with retry validation, and yields CardData objects.
+    calls generate with retry validation, optionally generates TTS audio
+    for all translations via OmniVoice (voice design mode), and yields CardData objects.
 
     Yields (progress_percent, phase_label, cards) at each step.
 
@@ -35,11 +38,15 @@ def generate_phase2(
         scenario: Original scenario/topic description.
         cefr_level: CEFR proficiency level.
         batch_size: Number of translations expected.
+        target_language: Target language name for TTS (e.g., "Latvian"). Used to improve synthesis quality.
+        include_audio: If True, generate TTS audio for all translations after translation completes.
 
     Yields:
         (20, "Preparing translation...", []) — before engine call
-        (60, "Translating...", []) — during generation
-        (100, "Translation complete!", cards) — with final CardData list
+        (15-70, "Translating... (N/total)", []) — during per-sentence translation
+        (70, "Generating audio...", []) — before TTS starts (if include_audio=True)
+        (95, "Audio complete!", cards) — after TTS batch (if include_audio=True)
+        (100, "Translation and audio complete!", cards) — with final CardData list
 
     Raises:
         ValidationError: If translation fails after max retries.
@@ -68,15 +75,31 @@ def generate_phase2(
     except ValidationError:
         raise
 
+    audio_paths: list[str | None] = [None] * len(translations)
+
+    if include_audio:
+        yield 70, "Generating audio...", []
+        try:
+            tts_engine = pool.get_tts_engine()
+            output_dir = Path(config.models_dir) / "output" / "audio"
+            audio_result = tts_engine.synthesize(translations, output_dir, language=target_language)
+            audio_paths = audio_result.audio_paths
+        except Exception as e:
+            logger.error("TTS generation failed: %s", e, exc_info=True)
+            # Continue with None audio paths — cards still render with translations
+
     cards = [
         CardData(
             text=text,
             translation=translation,
-            audio_path=None,
+            audio_path=audio_paths[i] if include_audio else None,
             image_path=None,
             cefr_level=cefr_level,
         )
-        for text, translation in zip(texts, translations)
+        for i, (text, translation) in enumerate(zip(texts, translations))
     ]
 
-    yield 100, "Translation complete!", cards
+    if include_audio:
+        yield 100, "Translation and audio complete!", cards
+    else:
+        yield 100, "Translation complete!", cards

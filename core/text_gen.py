@@ -94,12 +94,12 @@ def generate_sentences(
     if topic_description:
         topic_guidance = (
             f"Focus on these topics/themes: {topic_description}. "
-            "Each sentence should explore a different aspect of these topics."
+            "Each sentence should explore and write a sentence of these topics/themes."
         )
     else:
         topic_guidance = (
-            f"Focus on the scenario described below. "
-            "Each sentence should explore a different aspect of it."
+            "Focus on the scenario described below."
+            "Each sentence should explore and write a sentence of it."
         )
 
     _base_messages = [

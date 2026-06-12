@@ -12,7 +12,7 @@ import numpy as np
 import soundfile as sf
 import torch
 
-from core.types import CEFRLevel, EngineConfig, TextResult, ValidationError
+from core.types import AudioResult, CEFRLevel, EngineConfig, ImageResult, TextResult, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -412,7 +412,7 @@ class TTSEngine:
         self._loaded = False
 
     def _load_model(self) -> None:
-        """Lazy-load the OmniVoice model from HF Hub."""
+        """Lazy-load the OmniVoice model from HF Hub (cached locally)."""
         if self._loaded:
             return
 
@@ -423,6 +423,7 @@ class TTSEngine:
                 "omnivoice package not installed. Run: pip install omnivoice"
             )
 
+        logger.info("Loading OmniVoice from HF Hub (cached in ~/.cache/huggingface/)")
         self._model = OmniVoice.from_pretrained(
             "k2-fsa/OmniVoice",
             device_map=self.device,
@@ -431,12 +432,25 @@ class TTSEngine:
         self._loaded = True
         logger.info("OmniVoice model loaded on %s", self.device)
 
-    def synthesize(self, texts: list[str], output_dir: Path) -> AudioResult:
-        """Generate audio for a batch of texts.
+    def synthesize(
+        self,
+        texts: list[str],
+        output_dir: Path,
+        language: str | None = None,
+        instruct: str | None = None,
+    ) -> AudioResult:
+        """Generate audio for a batch of texts using voice design mode.
+
+        Uses OmniVoice in voice design mode with a consistent female voice.
+        Optionally accepts a target language for improved synthesis quality.
 
         Args:
             texts: List of text strings to convert to speech.
             output_dir: Directory to save .wav files.
+            language: Target language name for TTS (e.g., "Latvian", "Spanish").
+                Improves synthesis quality when known. Defaults to None (auto-detect).
+            instruct: OmniVoice voice design string (e.g., "female, young adult").
+                Defaults to "female, young adult" when omitted.
 
         Returns:
             AudioResult with absolute paths to generated audio files.
@@ -447,7 +461,11 @@ class TTSEngine:
         audio_paths = []
         for i, text in enumerate(texts):
             try:
-                audio_data = self._model.generate(text=text)
+                audio_data = self._model.generate(
+                    text=text,
+                    instruct=instruct or "female, young adult",
+                    language=language,
+                )
                 if audio_data and len(audio_data) > 0:
                     wav_path = output_dir / f"audio_{i}.wav"
                     sf.write(str(wav_path), audio_data[0], 24000)
@@ -493,7 +511,7 @@ class ImageGenEngine:
         self._loaded = False
 
     def _load_pipeline(self) -> None:
-        """Lazy-load the Flux2Klein pipeline from HF Hub."""
+        """Lazy-load the Flux2Klein pipeline from HF Hub (cached locally)."""
         if self._loaded:
             return
 
@@ -505,6 +523,7 @@ class ImageGenEngine:
             )
 
         torch_dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
+        logger.info("Loading Flux2Klein from HF Hub (cached in ~/.cache/huggingface/)")
         self._pipeline = Flux2KleinPipeline.from_pretrained(
             "black-forest-labs/FLUX.2-klein-4B",
             torch_dtype=torch_dtype,
