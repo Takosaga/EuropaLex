@@ -95,6 +95,12 @@ body, .gradio-container {
     box-shadow: 0 1px 2px rgba(0,0,0,0.08) !important;
 }
 
+/* ─── Constrain native audio controls inside cards ──────────────── */
+.media-row audio {
+    max-width: 100% !important;
+    height: 28px !important;
+}
+
 /* === Image Placeholder in Card === */
 .img-placeholder {
     width: 100%;
