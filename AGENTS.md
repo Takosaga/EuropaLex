@@ -186,7 +186,7 @@ Five concrete engine classes replace the legacy `InferenceEngine` protocol:
 |---|---|---|
 | `MiniCPMTextEngine` | llama-cpp-python (GGUF) | Lazy-load on first `.generate()`, unload after completion (~1.1 GB RAM). Uses `apply_chat_template`. Validates output sentence count against `batch_size`; retries with stricter prompts on mismatch (max 3 attempts). Used in Phase 1 for English text generation. |
 | `LlamaCppTextEngine` | llama-cpp-python (GGUF) | Lazy-load on first `.generate()`, unload after completion (~2 GB VRAM). Validates output line count against `batch_size`; retries with stricter prompts on mismatch (max 3 attempts). Used in Phase 2 for translation. |
-| `TTSEngine` | omnivoice (PyTorch) | Lazy-load on first `.synthesize()`, unload after completion. Accepts `instruct` parameter for voice design mode. Used in Phase 2 for TTS audio. |
+| `TTSEngine` | omnivoice (PyTorch) | Lazy-load on first `.synthesize()`, unload after completion. Accepts `instruct` parameter for voice design mode (defaults to `"female, young adult"`). Used in Phase 2 for TTS audio. |
 | `ImageGenEngine` | diffusers Flux2KleinPipeline (PyTorch) | Lazy-load on first `.generate()`, unload after completion. Image generation toggle is available but not yet wired into the pipeline. |
 | `EnginePool` | Singleton factory | Manages mutual exclusion between all GPU engines. Phase 1 uses only `MiniCPMTextEngine` (~1.1 GB RAM). Phase 2 loads GPU engines sequentially: translation → TTS/images. |
 
