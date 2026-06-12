@@ -308,6 +308,7 @@ def generate_media_async(
             for i, path in enumerate(audio_paths):
                 if path is not None:
                     cards[i]["audio_path"] = path
+            tts_generated = True
         except Exception as e:
             logger.error("TTS generation failed: %s", e, exc_info=True)
             # Cards remain without audio — user can retry
@@ -412,10 +413,11 @@ with gr.Blocks() as demo:
         """After text generation, enable toggles, dropdowns and Generate Cards button by removing disabled CSS.
 
         Voice dropdown becomes interactive — it becomes visible when audio toggle is turned ON (via audio_toggle.change).
+        Explicitly sets value=False to prevent Gradio from resetting checkbox state on re-render.
         """
         return (
-            gr.Checkbox(interactive=True),
-            gr.Checkbox(interactive=True),
+            gr.Checkbox(interactive=True, value=False),
+            gr.Checkbox(interactive=True, value=False),
             gr.Button(interactive=True),
             gr.Dropdown(interactive=True),
             "",
@@ -429,11 +431,12 @@ with gr.Blocks() as demo:
         Also restores both buttons visibility (hidden by Phase 2).
         Re-applies disabled CSS to phase-2 controls.
         Keeps voice dropdown visible but disabled (it becomes interactive when audio is toggled ON after Phase 1).
+        Explicitly sets value=False to prevent Gradio from resetting checkbox state on re-render.
         """
         return (
             gr.Button(visible=True, interactive=True),
-            gr.Checkbox(interactive=False),
-            gr.Checkbox(interactive=False),
+            gr.Checkbox(interactive=False, value=False),
+            gr.Checkbox(interactive=False, value=False),
             gr.Button(visible=True, interactive=False, variant="secondary"),
             gr.Dropdown(visible=True, interactive=False),
             """<style id="phase-css">#toggle-images, #toggle-audio { opacity: 0.45; pointer-events: none; cursor: not-allowed; } #language-dropdown, #voice-dropdown { opacity: 0.45; pointer-events: none; cursor: not-allowed; } #generate-cards-btn { opacity: 0.45; pointer-events: none; cursor: not-allowed; }</style>""",
