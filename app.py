@@ -17,12 +17,22 @@ logger = logging.getLogger(__name__)
 from core.engine import EnginePool, MiniCPMTextEngine
 from core.types import CEFRLevel, EngineConfig
 from frontend.ui.cards import render_card_html, generate_cards_html, generate_progress_html
-from frontend.ui.widgets import create_toggle
+from frontend.ui.widgets import create_toggle, create_voice_dropdown
 
 
 # ─── Phase State ────────────────────────────────────────────────────
 
 _phase1_texts: list[str] = []  # English texts from Phase 1, passed to Phase 2
+
+# Mapping from voice dropdown display labels to OmniVoice instruct strings
+_VOICE_MAP: dict[str, str] = {
+    "Female — Middle-Aged": "female, middle-aged",
+    "Female — Young Adult": "female, young adult",
+    "Female — Teenager": "female, teenager",
+    "Male — Middle-Aged": "male, middle-aged",
+    "Male — Young Adult": "male, young adult",
+    "Male — Teenager": "male, teenager",
+}
 
 
 # ─── Mock Card Data ────────────────────────────────────────────────
@@ -183,6 +193,7 @@ def generate_media_async(
     batch_size: int,
     target_language: str = "Latvian",
     include_audio: bool = False,
+    voice: str = "female, young adult",
 ):
     """Phase 2: Translate Phase 1 English text and optionally generate TTS audio.
 
@@ -289,7 +300,7 @@ def generate_media_async(
             tts_engine = pool.get_tts_engine()
             output_dir = Path(config.models_dir) / "output" / "audio"
             translations_list = [c["translation"] for c in cards]
-            audio_result = tts_engine.synthesize(translations_list, output_dir, language=target_language)
+            audio_result = tts_engine.synthesize(translations_list, output_dir, language=target_language, instruct=voice)
             audio_paths = audio_result.audio_paths
 
             # Attach audio paths to cards
@@ -363,8 +374,11 @@ with gr.Blocks() as demo:
 
             # Phase 2 controls: toggles + button (below cards)
             with gr.Row():
+                audio_toggle = create_toggle("🔊 Audio", value=False, elem_id="toggle-audio")
                 images_toggle = create_toggle("🖼️ Images", value=False, elem_id="toggle-images")
-            audio_toggle = create_toggle("🔊 Audio", value=False, elem_id="toggle-audio")
+
+            voice_dropdown = create_voice_dropdown()
+            voice_dropdown.visible = False  # hidden until Audio is ON
 
             generate_cards_btn = gr.Button("Generate Cards", elem_id="generate-cards-btn", variant="secondary")
 
@@ -390,17 +404,25 @@ with gr.Blocks() as demo:
         for result in generate_text_async(scenario, cefr_level, batch_size):
             yield result
 
-    def _handle_media_generation(scenario, cefr_level, batch_size, target_language, include_audio):
+    def _handle_media_generation(scenario, cefr_level, batch_size, target_language, include_audio, voice):
         """Wrapper for generate_media_async that handles empty scenario and missing Phase 1 texts."""
         if not scenario.strip():
             yield generate_progress_html(0, "⚠️ Please enter a scenario or topic."), '<div style="color:#c44; padding:20px;">Please enter a scenario or topic to generate cards.</div>'
             return
-        for result in generate_media_async(scenario, cefr_level, batch_size, target_language, include_audio):
+        # Map display label to OmniVoice instruct string
+        instruct = _VOICE_MAP.get(voice, voice)
+        for result in generate_media_async(scenario, cefr_level, batch_size, target_language, include_audio, instruct):
             yield result
 
     def _enable_phase2():
         """After text generation, enable toggles and Generate Cards button by removing disabled CSS."""
-        return gr.Checkbox(interactive=True), gr.Checkbox(interactive=True), gr.Button(interactive=True), ""
+        return (
+            gr.Checkbox(interactive=True),
+            gr.Checkbox(interactive=True),
+            gr.Button(interactive=True),
+            "",
+            gr.Dropdown(visible=True),
+        )
 
     def _reset_to_idle():
         """Reset UI to idle state when user changes parameters.
@@ -416,6 +438,7 @@ with gr.Blocks() as demo:
             gr.Checkbox(interactive=False),
             gr.Button(visible=True, interactive=False, variant="secondary"),
             """<style id="phase-css">#toggle-images, #toggle-audio { opacity: 0.45; pointer-events: none; cursor: not-allowed; } #generate-cards-btn { opacity: 0.45; pointer-events: none; cursor: not-allowed; }</style>""",
+            gr.Dropdown(visible=False),
         )
 
     generate_text_btn.click(
@@ -425,12 +448,12 @@ with gr.Blocks() as demo:
     ).then(
         fn=_enable_phase2,
         inputs=[],
-        outputs=[images_toggle, audio_toggle, generate_cards_btn, phase_css],
+        outputs=[images_toggle, audio_toggle, generate_cards_btn, phase_css, voice_dropdown],
     )
 
     generate_cards_btn.click(
         fn=_handle_media_generation,
-        inputs=[scenario_input, cefr_dropdown, batch_slider, language_dropdown, audio_toggle],
+        inputs=[scenario_input, cefr_dropdown, batch_slider, language_dropdown, audio_toggle, voice_dropdown],
         outputs=[progress_html, card_output],
     ).then(
         fn=lambda: (gr.Button(visible=False), gr.Button(visible=False)),
@@ -439,10 +462,10 @@ with gr.Blocks() as demo:
     )
 
     # Reset toggles and both buttons when user changes any input parameter
-    scenario_input.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css])
-    cefr_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css])
-    batch_slider.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css])
-    language_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css])
+    scenario_input.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css, voice_dropdown])
+    cefr_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css, voice_dropdown])
+    batch_slider.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css, voice_dropdown])
+    language_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css, voice_dropdown])
 
 
 if __name__ == "__main__":
