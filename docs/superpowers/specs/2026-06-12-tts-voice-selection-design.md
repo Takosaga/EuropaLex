@@ -37,11 +37,10 @@ Six presets, ordered by gender first then age from oldest to youngest:
 
 ### Placement
 
-The voice dropdown appears **under the Audio toggle**, only when the audio toggle is enabled (`value=True`). It is hidden (`visible=False`) otherwise.
+The voice dropdown appears **directly under the Audio toggle** (left side of the row), only when the audio toggle is enabled (`value=True`). It is hidden (`visible=False`) otherwise.
 
 ```
-[🖼️ Images]  (checkbox toggle)
-[🔊 Audio]    (checkbox toggle)
+[🔊 Audio]  [🖼️ Images]  (checkbox toggles, side-by-side)
 ├─ Voice: [▼ Female — Young Adult]  (dropdown, appears only when Audio is ON)
 [Generate Cards]  (button)
 ```
