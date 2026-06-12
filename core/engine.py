@@ -550,10 +550,10 @@ class ImageGenEngine:
             try:
                 images = self._pipeline(
                     prompt=prompt,
-                    num_inference_steps=28,
-                    guidance_scale=3.5,
-                    width=480,
-                    height=320,
+                    num_inference_steps=10,
+                    guidance_scale=1.0,
+                    width=160,
+                    height=240,
                 )
                 if images.images and len(images.images) > 0:
                     img_path = output_dir / f"image_{i}.png"
