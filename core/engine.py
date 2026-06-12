@@ -552,8 +552,8 @@ class ImageGenEngine:
                     prompt=prompt,
                     num_inference_steps=28,
                     guidance_scale=3.5,
-                    width=450,
-                    height=300,
+                    width=480,
+                    height=320,
                 )
                 if images.images and len(images.images) > 0:
                     img_path = output_dir / f"image_{i}.png"
