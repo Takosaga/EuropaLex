@@ -8,7 +8,7 @@ Models:
     minicpm         — MiniCPM5-1B Q8_0 (llama-cpp-python)
     tiny_aya        — tiny-aya-water Q4_K_M (llama-cpp-python)
     omnivoice       — OmniVoice Q8_0 TTS (omnivoice.cpp, requires base + tokenizer)
-    flux            — FLUX.2-klein 4B Q4_K_M image gen (ComfyUI-GGUF)
+    flux            — FLUX.2-klein 4B image gen (diffusers)
 """
 
 import argparse
@@ -34,9 +34,9 @@ MODELS = {
         "description": "OmniVoice Q8_0 TTS (base + tokenizer, omnivoice.cpp)",
     },
     "flux": {
-        "repo": "unsloth/FLUX.2-klein-4B-GGUF",
-        "files": ["flux-2-klein-4b-Q4_K_M.gguf"],
-        "description": "FLUX.2-klein 4B Q4_K_M image gen (ComfyUI-GGUF)",
+        "repo": "black-forest-labs/FLUX.2-klein-4B",
+        "files": None,  # Download all files — safetensors weights + configs (~10–12 GB)
+        "description": "FLUX.2-klein 4B image gen (diffusers)",
     },
 }
 
@@ -48,15 +48,18 @@ def download_model(name: str, target_dir: Path) -> None:
 
     print(f"Downloading {info['description']} ({info['repo']})...")
     print(f"  Target: {output_dir}")
-    for f in info["files"]:
-        print(f"  📦 {f}")
+    if info["files"]:
+        for f in info["files"]:
+            print(f"  📦 {f}")
+    else:
+        print(f"  📦 All files ({info['description']} is ~10–12 GB)")
     print()
 
     from huggingface_hub import snapshot_download
 
     snapshot_download(
         repo_id=info["repo"],
-        allow_patterns=info["files"],
+        allow_patterns=info["files"] or ["*"],  # None → download all
         local_dir=str(output_dir),
         resume_download=True,
     )

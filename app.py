@@ -168,22 +168,29 @@ def generate_text_async(
     yield generate_progress_html(100, "Text ready! Adjust media toggles and click Generate Cards."), generate_cards_html(cards, include_image=False, include_audio=False, placeholder_back=True)
 
 
-def _progress_pct(translated_idx: int, total: int) -> tuple[float, str]:
-    """Calculate progress percentage and label for per-sentence translation.
+def _progress_pct(
+    translated_idx: int,
+    total: int,
+    start_pct: float = 15.0,
+    end_pct: float = 70.0,
+) -> tuple[float, str]:
+    """Calculate progress percentage for translation within a given range.
 
     Args:
         translated_idx: Index of the sentence just completed (0-based).
         total: Total number of sentences to translate.
+        start_pct: Starting percentage for this phase (default 15% after preparation).
+        end_pct: Ending percentage for this phase (default 70% before next phase).
 
     Returns:
         (percentage, label) tuple.
     """
     if total <= 1:
-        return 100.0, "Translation complete!"
-    pct = ((translated_idx + 1) / total) * 100
+        return end_pct, "Translation complete!"
+    pct = start_pct + ((translated_idx + 1) / total) * (end_pct - start_pct)
     remaining = total - (translated_idx + 1)
-    if pct >= 100:
-        return 100.0, "Translation complete!"
+    if pct >= end_pct:
+        return end_pct, "Translation complete!"
     return round(pct, 1), f"Translated {translated_idx + 1}/{total} — {remaining} remaining..."
 
 
@@ -283,15 +290,13 @@ def generate_media_async(
             "topic_description": scenario,
         })
 
-        pct, label = _progress_pct(i, total)
+        pct, label = _progress_pct(i, total, start_pct=15.0, end_pct=70.0)
         yield generate_progress_html(pct, label), generate_cards_html(
             cards, include_image=include_images, include_audio=include_audio, placeholder_back=False
         )
 
     # Generate TTS audio for all translations if requested
-    # Note: always include generated media in final output regardless of toggle state,
-    # so previously generated audio/images remain accessible after toggling off.
-    # Image generation not yet implemented — image paths are None.
+    image_paths: list[str | None] = [None] * len(cards)
     tts_generated = False
     if include_audio and cards:
         yield generate_progress_html(70, "Generating audio..."), generate_cards_html(
@@ -314,6 +319,31 @@ def generate_media_async(
             # Cards remain without audio — user can retry
             tts_generated = False
 
+    # Generate images for all translations if requested
+    if include_images and cards:
+        yield generate_progress_html(85, "Generating images..."), generate_cards_html(
+            cards, include_image=True, include_audio=tts_generated, placeholder_back=False
+        )
+        try:
+            img_engine = pool.get_image_engine()
+            output_dir = Path(config.models_dir) / "output" / "images"
+            # Build prompts from English text + CEFR level
+            prompts = []
+            for card in cards:
+                prompt = (
+                    f"Simple educational illustration with NO TEXT for language learning for the following text: {card['text']}. "
+                )
+                prompts.append(prompt)
+            image_result = img_engine.generate(prompts, output_dir)
+            image_paths = image_result.image_paths
+            # Attach image paths to cards
+            for i, path in enumerate(image_paths):
+                if path is not None:
+                    cards[i]["image_path"] = path
+        except Exception as e:
+            logger.error("Image generation failed: %s", e, exc_info=True)
+            # Cards remain without images — user can retry
+
     # Final yield with 100%
     if not cards:
         yield generate_progress_html(0, "\u26a0\ufe0f No translations produced."), (
@@ -323,7 +353,13 @@ def generate_media_async(
             '</div>'
         )
     else:
-        final_label = "Translation and audio complete!" if tts_generated else "Translation complete!"
+        if include_images:
+            if tts_generated:
+                final_label = "Translation, audio, and images complete!"
+            else:
+                final_label = "Translation and images complete!"
+        else:
+            final_label = "Translation and audio complete!" if tts_generated else "Translation complete!"
         # Always include generated media regardless of toggle state so previously
         # generated audio/images remain accessible after toggling off/on.
         yield generate_progress_html(100, final_label), generate_cards_html(
@@ -380,8 +416,8 @@ with gr.Blocks() as demo:
                     elem_id="language-dropdown",
                 )
             with gr.Row():
-                audio_toggle = create_toggle("🔊 Audio", value=False, elem_id="toggle-audio")
-                images_toggle = create_toggle("🖼️ Images", value=False, elem_id="toggle-images")
+                audio_toggle = create_toggle("🔊 Audio", value=True, elem_id="toggle-audio")
+                images_toggle = create_toggle("🖼️ Images", value=True, elem_id="toggle-images")
 
             voice_dropdown = create_voice_dropdown()  # visible but disabled via CSS until Phase 2 + audio ON
 
@@ -412,12 +448,12 @@ with gr.Blocks() as demo:
     def _enable_phase2():
         """After text generation, enable toggles, dropdowns and Generate Cards button by removing disabled CSS.
 
-        Voice dropdown becomes interactive — it becomes visible when audio toggle is turned ON (via audio_toggle.change).
-        Explicitly sets value=False to prevent Gradio from resetting checkbox state on re-render.
+        Both Audio and Images toggles default to ON after Phase 1. Voice dropdown becomes interactive — it becomes visible when audio toggle is turned ON (via audio_toggle.change).
+        Explicitly sets value=True to prevent Gradio from resetting checkbox state on re-render.
         """
         return (
-            gr.Checkbox(interactive=True, value=False),
-            gr.Checkbox(interactive=True, value=False),
+            gr.Checkbox(interactive=True, value=True),
+            gr.Checkbox(interactive=True, value=True),
             gr.Button(interactive=True),
             gr.Dropdown(interactive=True),
             "",

@@ -18,10 +18,10 @@ models:
     runtime: llama-cpp-python
     quant: q4_k_m
   flux:
-    repo: unsloth/FLUX.2-klein-4B-GGUF
-    file: flux-2-klein-4b-Q4_K_M.gguf
-    runtime: ComfyUI-GGUF
-    quant: Q4_K_M
+    repo: black-forest-labs/FLUX.2-klein-4B
+    file: null  # diffusers model — no single GGUF file
+    runtime: diffusers
+    quant: null
 
 # Batch defaults
 batch:
