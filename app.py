@@ -31,6 +31,52 @@ try:
 except Exception:
     pass  # Non-critical; app will work without this patch
 
+# ─── Fix Gradio file download Content-Length bug ──────────────────────
+# Gradio 6.x uses Starlette FileResponse which can cause "Too little data
+# for declared Content-Length" with h11 on streaming file downloads.
+# The root cause: FileResponse.set_stat_headers() sets Content-Length based
+# on the file size. With h11, this causes a protocol error during chunked
+# transfer. We patch FileResponse to skip setting Content-Length so h11
+# falls back to chunked transfer encoding.
+#
+# IMPORTANT: Gradio imports FileResponse directly into its modules (routes.py,
+# route_utils.py). Simply replacing starlette.responses.FileResponse is not
+# enough — we must also patch Gradio's cached references.
+try:
+    from starlette.responses import FileResponse as _FileResponseBase
+    import starlette.responses as _sr_mod
+
+    class _NoContentLengthFileResponse(_FileResponseBase):
+        """FileResponse that never sets Content-Length to avoid h11 bugs."""
+
+        def set_stat_headers(self, stat_result):
+            """Override to skip setting Content-Length (keeps last-modified and etag)."""
+            last_modified = _sr_mod.formatdate(stat_result.st_mtime, usegmt=True)
+            etag_base = str(stat_result.st_mtime) + "-" + str(stat_result.st_size)
+            import hashlib
+            etag = '"' + hashlib.md5(etag_base.encode(), usedforsecurity=False).hexdigest() + '"'
+            self.headers.setdefault("last-modified", last_modified)
+            self.headers.setdefault("etag", etag)
+            # Deliberately NOT setting content-length
+
+    # Patch Starlette's module-level reference
+    _sr_mod.FileResponse = _NoContentLengthFileResponse  # type: ignore[assignment]
+
+    # Also patch Gradio's cached references (they imported FileResponse directly)
+    import gradio.route_utils as _ru_mod
+    if hasattr(_ru_mod, 'FileResponse'):
+        _ru_mod.FileResponse = _NoContentLengthFileResponse  # type: ignore[assignment]
+
+    import gradio.routes as _rt_mod
+    if hasattr(_rt_mod, 'FileResponse'):
+        _rt_mod.FileResponse = _NoContentLengthFileResponse  # type: ignore[assignment]
+
+    import gradio.static_server as _ss_mod
+    if hasattr(_ss_mod, 'FileResponse'):
+        _ss_mod.FileResponse = _NoContentLengthFileResponse  # type: ignore[assignment]
+except Exception:
+    pass  # Non-critical; app will work without this patch
+
 import logging
 import os
 from pathlib import Path

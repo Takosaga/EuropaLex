@@ -93,30 +93,31 @@ def test_voice_map_instruct_strings_format():
 
 
 def test_enable_phase2_returns_tuple(_mock_gradio):
-    """_enable_phase2() returns tuple of (Checkbox, Checkbox, Button, Dropdown, CSS).
+    """_enable_phase2() returns tuple of (Checkbox, Checkbox, Button, Dropdown, Button, CSS).
 
-    Export buttons are NOT enabled here — they are enabled after Phase 2 completes
+    Export button is VISIBLE but DISABLED here — it is enabled after Phase 2 completes
     (when _current_cards is populated) via _on_media_generation_complete().
     """
     from frontend.ui.widgets import _enable_phase2
 
     result = _enable_phase2()
     assert isinstance(result, tuple)
-    assert len(result) == 5
+    assert len(result) == 6
 
 
 def test_reset_to_idle_returns_tuple(_mock_gradio):
-    """_reset_to_idle() returns tuple with interactive=False, disabled CSS string, and download CSV button."""
+    """_reset_to_idle() returns tuple with interactive=False, disabled CSS string, export button, and file component."""
     from frontend.ui.widgets import _reset_to_idle
 
     result = _reset_to_idle()
     assert isinstance(result, tuple)
-    assert len(result) == 7
+    assert len(result) == 8
     # Element at index 5 should be a CSS string (non-empty)
     assert isinstance(result[5], str)
     assert len(result[5]) > 0
-    # Last element should be the download CSV button mock
-    assert isinstance(result[6], MagicMock)
+    # Elements at indices 6, 7 should be the export button and file component mocks
+    assert isinstance(result[6], MagicMock)  # export_btn
+    assert isinstance(result[7], MagicMock)  # export_file
 
 
 def test_reset_to_idle_disabled_css_content(_mock_gradio):
