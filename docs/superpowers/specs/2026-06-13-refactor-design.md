@@ -81,8 +81,8 @@ app.launch(server_name="0.0.0.0", server_port=7860, css=css_content)
 
 - Keeps `create_toggle()` and `create_voice_dropdown()` unchanged
 - Adds `build_ui()` — a single function that constructs the entire Gradio Blocks layout and returns it
-- `_VOICE_MAP` is imported from app.py or moved into widgets.py since it's UI data
-- Returns `(demo, generate_text_btn, generate_cards_btn, ...)` so app.py can access buttons for event wiring
+- `_VOICE_MAP` moves to `widgets.py` — it maps voice display labels to OmniVoice instruct strings, consumed by the layout builder and event handlers
+- Returns `(demo, generate_text_btn, generate_cards_btn, images_toggle, audio_toggle, voice_dropdown, phase_css)` — all elements that app.py's click handlers need to reference
 
 ### core/audio_gen.py
 
