@@ -161,6 +161,24 @@ def _restore_generate_cards_button() -> tuple:
     )
 
 
+def _restore_generate_cards_button_only() -> tuple:
+    """Restore only the Generate Cards button visibility without disabling toggles.
+
+    Used for language changes after Phase 2 has completed. Unlike _reset_to_idle(),
+    this does NOT re-apply disabled CSS to toggles — they remain fully interactive.
+    Does NOT restore the Generate Text button (only appears on scenario/CEFR/batch reset).
+
+    Returns:
+        Tuple of (generate_text_btn, generate_cards_btn, export_btn) Gradio updates.
+    """
+    import gradio as gr
+    return (
+        gr.Button(visible=False),                    # generate_text_btn (stays hidden)
+        gr.Button(visible=True, interactive=True),   # generate_cards_btn (restore)
+        gr.Button(visible=True, interactive=False),  # export_btn (disabled until Phase 2)
+    )
+
+
 # ─── UI Layout Builder ───────────────────────────────────────────
 
 def build_ui() -> "gr.Blocks":
@@ -355,15 +373,11 @@ def build_ui() -> "gr.Blocks":
         scenario_input.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_btn, export_file])
         cefr_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_btn, export_file])
         batch_slider.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_btn, export_file])
-        # Language change — reset toggles but restore Generate Cards button for regeneration
+        # Language change — only restore Generate Cards button (toggles stay interactive)
         language_dropdown.change(
-            fn=_reset_to_idle,
+            fn=_restore_generate_cards_button_only,
             inputs=[],
-            outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_btn, export_file],
-        ).then(
-            fn=_restore_generate_cards_button,
-            inputs=[],
-            outputs=[generate_cards_btn, export_btn],
+            outputs=[generate_text_btn, generate_cards_btn, export_btn],
         )
 
         # Image toggle change — restore Generate Cards button so user can regenerate with/without images
