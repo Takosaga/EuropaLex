@@ -465,29 +465,29 @@ def _handle_export_csv(
         return None
 
 
-def _handle_export_apkg(
+def _handle_export_csv_for_anki(
     scenario: str,
     cefr_level: str,
     target_language: str,
 ) -> str | None:
-    """Export current cards as an Anki package (.apkg).
+    """Export current cards as an Anki-compatible CSV zip.
 
-    Returns the absolute path to the generated .apkg file for Gradio DownloadButton.
+    Returns the absolute path to the generated .zip file for Gradio DownloadButton.
     Returns None if no cards to export or export failed.
     """
     if not _current_cards:
-        logger.warning("APKG export: no cards to export")
+        logger.warning("Anki CSV export: no cards to export")
         return None
 
     try:
         from core.types import CEFRLevel
-        from export.apkg_generator import generate_apkg_package
+        from export.csv_for_anki import export_csv_for_anki
 
         cefr = CEFRLevel(cefr_level)
-        apkg_path = generate_apkg_package(_current_cards, scenario, cefr_level, target_language)
-        return apkg_path
+        zip_path = export_csv_for_anki(_current_cards, scenario, cefr_level, target_language)
+        return zip_path
     except Exception as e:
-        logger.error("APKG export failed: %s", e, exc_info=True)
+        logger.error("Anki CSV export failed: %s", e, exc_info=True)
         return None
 
 
