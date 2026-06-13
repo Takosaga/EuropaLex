@@ -373,16 +373,15 @@ def _handle_export_csv(
     scenario: str,
     cefr_level: str,
     target_language: str,
-):
+) -> str | None:
     """Export current cards as a zipped CSV folder.
 
-    Yields (progress_html, file_path) tuples for Gradio generator consumption.
+    Returns the absolute path to the generated .zip file for Gradio DownloadButton.
+    Returns None if no cards to export or export failed.
     """
-    from frontend.ui.cards import generate_progress_html
-
     if not _current_cards:
-        yield generate_progress_html(0, "\u26a0\ufe0f No cards to export."), None
-        return
+        logger.warning("CSV export: no cards to export")
+        return None
 
     try:
         from core.types import CEFRLevel
@@ -390,10 +389,10 @@ def _handle_export_csv(
 
         cefr = CEFRLevel(cefr_level)
         zip_path = export_csv_zip(_current_cards, scenario, cefr_level, target_language)
-        yield generate_progress_html(100, "Export complete!"), zip_path
+        return zip_path
     except Exception as e:
         logger.error("CSV export failed: %s", e, exc_info=True)
-        yield generate_progress_html(0, f"\u26a0\ufe0f Export failed: {e}"), None
+        return None
 
 
 def _handle_export_apkg_stub():
@@ -406,6 +405,32 @@ def _handle_export_apkg_stub():
 
 
 if __name__ == "__main__":
+    # ─── Disable Gradio's BrotliMiddleware ─────────────────────────
+    # Gradio 6.x adds BrotliMiddleware which has a known bug with h11:
+    # For streaming responses (generator yields), the middleware deletes
+    # Content-Length and uses chunked transfer encoding, but h11 can
+    # miscalculate content length from the first compressed chunk,
+    # then reject subsequent chunks as "Too much data for declared
+    # Content-Length". We disable it by replacing the class in routes.py
+    # before build_ui() creates the Gradio app.
+    try:
+        import gradio.routes as _routes_mod
+        from gradio.brotli_middleware import BrotliMiddleware
+
+        class _PassthroughMiddleware:
+            """Drop-in replacement that passes all requests through uncompressed."""
+
+            def __init__(self, app, **kwargs):
+                self.app = app
+
+            async def __call__(self, scope, receive, send):
+                await self.app(scope, receive, send)
+
+        # Replace in routes.py's local namespace so create_app uses passthrough
+        _routes_mod.BrotliMiddleware = _PassthroughMiddleware  # type: ignore[assignment]
+    except Exception:
+        pass  # Non-critical; app will work without this patch
+
     from frontend.ui.widgets import build_ui
 
     css_path = os.path.join(os.path.dirname(__file__), "frontend", "css", "custom.css")

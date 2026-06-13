@@ -1,6 +1,8 @@
 # EuropaLex Frontend UI Components
 # Custom styled Gradio widget wrappers + full UI layout builder
 
+import logging
+
 
 def create_toggle(label: str, value: bool = True, elem_id: str = "") -> "gr.Checkbox":
     """Create a styled toggle checkbox for media options.
@@ -78,11 +80,10 @@ def _enable_phase2() -> tuple:
 
     Both Audio and Images toggles default to ON after Phase 1. Voice dropdown becomes interactive — it becomes visible when audio toggle is turned ON (via audio_toggle.change).
     Explicitly sets value=True to prevent Gradio from resetting checkbox state on re-render.
-    Also enables export buttons (CSV real, APKG stub).
+    Download CSV button remains HIDDEN until Phase 2 completes (when _current_cards is populated).
 
     Returns:
-        Tuple of (images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css,
-                  export_csv_btn, export_apkg_btn) updates.
+        Tuple of (images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css) updates.
     """
     import gradio as gr
     return (
@@ -91,8 +92,6 @@ def _enable_phase2() -> tuple:
         gr.Button(interactive=True),                    # generate_cards_btn
         gr.Dropdown(interactive=True),                  # voice_dropdown
         "",                                              # phase_css
-        gr.Button(interactive=True),                    # export_csv_btn
-        gr.Button(interactive=True),                    # export_apkg_btn
     )
 
 
@@ -105,11 +104,11 @@ def _reset_to_idle() -> tuple:
     Re-applies disabled CSS to phase-2 controls.
     Keeps voice dropdown visible but disabled (it becomes interactive when audio is toggled ON after Phase 1).
     Explicitly sets value=False to prevent Gradio from resetting checkbox state on re-render.
-    Also disables export buttons until Phase 2 completes.
+    Hides download CSV button until Phase 2 completes.
 
     Returns:
         Tuple of (generate_text_btn, images_toggle, audio_toggle, generate_cards_btn,
-                  voice_dropdown, phase_css, export_csv_btn, export_apkg_btn) updates.
+                  voice_dropdown, phase_css, download_csv_btn, export_status) updates.
     """
     import gradio as gr
     return (
@@ -119,8 +118,8 @@ def _reset_to_idle() -> tuple:
         gr.Button(visible=True, interactive=False, variant="secondary"),  # generate_cards_btn
         gr.Dropdown(visible=True, interactive=False),      # voice_dropdown
         """<style id="phase-css">#toggle-images, #toggle-audio { opacity: 0.45; pointer-events: none; cursor: not-allowed; } #language-dropdown, #voice-dropdown { opacity: 0.45; pointer-events: none; cursor: not-allowed; } #generate-cards-btn { opacity: 0.45; pointer-events: none; cursor: not-allowed; }</style>""",  # phase_css
-        gr.Button(interactive=False),                      # export_csv_btn
-        gr.Button(interactive=False),                      # export_apkg_btn
+        gr.DownloadButton(visible=False),                  # download_csv_btn
+        gr.Label(visible=False),                           # export_status
     )
 
 
@@ -235,13 +234,13 @@ def build_ui() -> "gr.Blocks":
 
                 progress_html = gr.HTML(label="Progress")
 
-                # Export buttons row
-                with gr.Row():
-                    export_csv_btn = gr.Button("Export CSV", elem_id="export-csv-btn")
-                    export_apkg_btn = gr.Button("Export APKG", elem_id="export-apkg-btn")
+                # Download CSV button — shown after Phase 2 completes (when _current_cards is populated)
+                download_csv_btn = gr.DownloadButton(
+                    "📥 Download CSV + Media", visible=False, elem_id="download-csv-btn"
+                )
 
-                # File download component — shown when export completes
-                export_file = gr.File(label="Download Export", visible=False, elem_id="export-file")
+                # Export status label
+                export_status = gr.Label(label="Export Status", visible=False)
 
             gr.Column(scale=1)
 
@@ -277,9 +276,18 @@ def build_ui() -> "gr.Blocks":
                 yield result
 
         def _on_media_generation_complete():
-            """Hide both buttons during media generation."""
+            """After Phase 2 completes: hide generate buttons, show download CSV button.
+
+            Download CSV button is shown here (not after Phase 1) because _current_cards
+            is only populated at the end of generate_media_async().
+            """
             import gradio as gr
-            return (gr.Button(visible=False), gr.Button(visible=False))
+            return (
+                gr.Button(visible=False),        # generate_text_btn
+                gr.Button(visible=False),       # generate_cards_btn
+                gr.DownloadButton(visible=True), # download_csv_btn
+                gr.Label(visible=True),         # export_status
+            )
 
         generate_text_btn.click(
             fn=_handle_text_generation,
@@ -288,7 +296,7 @@ def build_ui() -> "gr.Blocks":
         ).then(
             fn=_enable_phase2,
             inputs=[],
-            outputs=[images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_csv_btn, export_apkg_btn],
+            outputs=[images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css],
         )
 
         # When audio toggle changes: show/hide voice dropdown and manage disabled CSS
@@ -314,38 +322,45 @@ def build_ui() -> "gr.Blocks":
         ).then(
             fn=_on_media_generation_complete,
             inputs=[],
-            outputs=[generate_text_btn, generate_cards_btn],
+            outputs=[generate_text_btn, generate_cards_btn, download_csv_btn, export_status],
         )
 
         # Reset toggles and both buttons when user changes any input parameter
-        scenario_input.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_csv_btn, export_apkg_btn])
-        cefr_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css, export_csv_btn, export_apkg_btn])
-        batch_slider.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_csv_btn, export_apkg_btn])
+        scenario_input.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, download_csv_btn, export_status])
+        cefr_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css, download_csv_btn, export_status])
+        batch_slider.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, download_csv_btn, export_status])
         # Language change does NOT reset — user can switch languages freely after Phase 1
 
         # ─── Export Event Wiring ──────────────────────────────────────
 
         def _handle_export_csv_event(scenario: str, cefr_level: str, target_language: str):
-            """Wrapper for app._handle_export_csv."""
-            yield from _app_module._handle_export_csv(scenario, cefr_level, target_language)
+            """Export current cards as CSV + media zip and trigger browser download.
 
+            Uses a generator to show progress before the download button returns the file path.
+            Each yield produces (progress_html, download_button_value) matching outputs.
+            """
+            from frontend.ui.cards import generate_progress_html
 
-        def _handle_export_apkg_event():
-            """Wrapper for app._handle_export_apkg_stub."""
-            yield from _app_module._handle_export_apkg_stub()
+            if not _app_module._current_cards:
+                yield (generate_progress_html(0, "\u26a0\ufe0f No cards to export."), None)
+                return
 
-        # Export CSV button click
-        export_csv_btn.click(
+            try:
+                zip_path = _app_module._handle_export_csv(scenario, cefr_level, target_language)
+                if zip_path is None:
+                    yield (generate_progress_html(0, "\u26a0\ufe0f Export failed."), None)
+                    return
+                yield (generate_progress_html(100, "Export complete!"), zip_path)
+            except Exception as e:
+                logger = logging.getLogger(__name__)
+                logger.error("CSV export failed: %s", e, exc_info=True)
+                yield (generate_progress_html(0, f"\u26a0\ufe0f Export failed: {e}"), None)
+
+        # Download CSV button click — triggers browser download of zip file
+        download_csv_btn.click(
             fn=_handle_export_csv_event,
             inputs=[scenario_input, cefr_dropdown, language_dropdown],
-            outputs=[progress_html, export_file],
-        )
-
-        # Export APKG button click (stub)
-        export_apkg_btn.click(
-            fn=_handle_export_apkg_event,
-            inputs=[],
-            outputs=[progress_html],
+            outputs=[progress_html, download_csv_btn],
         )
 
     return demo
