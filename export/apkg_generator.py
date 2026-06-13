@@ -200,6 +200,42 @@ def _create_package(
         return f.name
 
 
+def _fix_conf_model(existing_entries: dict[str, bytes]) -> None:
+    """Fix conf.curModel in the Anki database to reference our MODEL_ID.
+
+    genanki sets conf.curModel to a random default model ID that doesn't
+    match our custom MODEL_ID. Without this fix, Anki can't find the model
+    during import and throws "A number was invalid or out of range".
+
+    Modifies existing_entries in-place with the fixed database bytes.
+
+    Args:
+        existing_entries: Dict of zip entry name → bytes (from _inject_media).
+    """
+    if 'collection.anki2' not in existing_entries:
+        return
+
+    import sqlite3
+    import tempfile
+
+    tmp_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+    tmp_db.write(existing_entries['collection.anki2'])
+    tmp_db.close()
+
+    conn = sqlite3.connect(str(tmp_db.name))
+    cur = conn.cursor()
+    cur.execute('SELECT conf FROM col')
+    conf_raw = cur.fetchone()[0]
+    conf = json.loads(conf_raw)
+    conf['curModel'] = str(MODEL_ID)
+    cur.execute('UPDATE col SET conf = ? WHERE id = 1', (json.dumps(conf),))
+    conn.commit()
+    conn.close()
+
+    existing_entries['collection.anki2'] = Path(tmp_db.name).read_bytes()
+    Path(tmp_db.name).unlink(missing_ok=True)
+
+
 def _inject_media(
     apkg_path: str,
     cards: list[dict],
@@ -210,6 +246,9 @@ def _inject_media(
       1. Compute MD5 hash of file content (Anki's media naming convention)
       2. Write the file into the zip under the hashed name
       3. Update the media JSON manifest: {hash.ext} → {original_filename.ext}
+
+    Also fixes conf.curModel to reference our custom MODEL_ID, which
+    genanki leaves pointing to a non-existent default model.
 
     Deduplicates by content hash — same file injected only once.
     Skips files that don't exist on disk (logged as warning).
@@ -242,30 +281,51 @@ def _inject_media(
             original_filename = Path(src).name
             media_files.append((abs_src, original_filename, ext))
 
-    # Read existing media manifest
+    # Read existing media manifest and all existing entries
+    existing_entries: dict[str, bytes] = {}
     with zipfile.ZipFile(apkg_path, 'r') as zin:
         media_json = json.loads(zin.read('media'))
+        for name in zin.namelist():
+            if name != 'media':
+                existing_entries[name] = zin.read(name)
 
-    # Inject each unique file
+    # Fix conf.curModel: genanki sets it to a random default model ID
+    # that doesn't match our custom MODEL_ID. Without this fix, Anki
+    # can't find the model during import and throws "A number was invalid or out of range".
+    _fix_conf_model(existing_entries)
+
+    # Build the set of (hash, original_filename) pairs from the manifest
+    manifest_hashes: dict[str, str] = {}
+    for zip_name, orig_name in media_json.items():
+        manifest_hashes[zip_name] = orig_name
+
+    # Inject each unique file and update manifest
     for src_path, original_filename, ext in media_files:
         content = Path(src_path).read_bytes()
         media_hash = hashlib.md5(content, usedforsecurity=False).hexdigest()
         zip_entry = f"{media_hash}{ext}"
 
         # Skip if already injected (same content hash)
-        if zip_entry in media_json:
+        if zip_entry in manifest_hashes:
             continue
 
-        # Write into zip with hashed name
-        with zipfile.ZipFile(apkg_path, 'a') as zout:
-            zout.writestr(zip_entry, content)
+        # Store in-memory for rewrite
+        existing_entries[zip_entry] = content
+        manifest_hashes[zip_entry] = original_filename
 
-        # Update manifest: hash → original filename (already includes extension)
-        media_json[zip_entry] = original_filename
-
-    # Write updated media manifest back
-    with zipfile.ZipFile(apkg_path, 'a') as zout:
-        zout.writestr('media', json.dumps(media_json))
+    # Rewrite the entire .apkg zip from memory — this avoids
+    # Python zipfile's inability to replace entries in append mode,
+    # which causes "Duplicate name: 'media'" warnings and corrupt packages.
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix='.apkg', delete=False) as tmp:
+        with zipfile.ZipFile(tmp.name, 'w', zipfile.ZIP_DEFLATED) as zout:
+            for name, data in existing_entries.items():
+                zout.writestr(name, data)
+            # Write updated media manifest
+            zout.writestr('media', json.dumps(manifest_hashes))
+        # Replace original with the corrected zip
+        import shutil
+        shutil.move(tmp.name, apkg_path)
 
 
 def generate_apkg_package(
