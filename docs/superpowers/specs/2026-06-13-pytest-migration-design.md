@@ -247,6 +247,29 @@ uv run pytest tests/ -v
 
 The `pyproject.toml` already has `[tool.pytest.ini_options]` with `testpaths = ["tests"]` and `python_files = "*_test.py"`. No config changes needed.
 
+## Documentation Updates
+
+### `AGENTS.md`
+Update the "Testing Expectations" section to:
+- Replace "Smoke Tests" description with pytest as the primary test runner
+- Reference new test file naming convention (`*_test.py`)
+- Add guidance on writing tests: use fixtures from `conftest.py`, mock engines via `unittest.mock.patch`, prefer assertions over print statements
+- Remove references to `if __name__ == "__main__":` inline test pattern
+- Update "Before Merging" checklist to include `uv run pytest tests/ -v`
+
+### `README.md`
+Add a "Running Tests" section after the setup/installation instructions:
+```bash
+# Run all tests
+uv run pytest tests/ -v
+
+# Run specific test file
+uv run pytest tests/cards_test.py -v
+
+# Run with coverage
+uv run pytest tests/ -v --cov=core --cov=frontend --cov=app.py
+```
+
 ## Out of Scope
 
 - Testing actual model inference (all engines mocked)
