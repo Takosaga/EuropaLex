@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 
 # ─── Phase State ────────────────────────────────────────────────────
 
-_phase1_texts: list[str] = []  # English texts from Phase 1, passed to Phase 2
+_phase1_texts: list[str] = []    # English texts from Phase 1, passed to Phase 2
+_current_cards: list[dict] = []  # Full card data after Phase 2 (with media paths)
 
 
 # ─── Mock Card Data ────────────────────────────────────────────────
@@ -341,6 +342,10 @@ def generate_media_async(
             logger.error("Image generation failed: %s", e, exc_info=True)
             # Cards remain without images — user can retry
 
+    # Save cards for export (before final yield)
+    global _current_cards
+    _current_cards = [dict(c) for c in cards]
+
     # Final yield with 100%
     if not cards:
         yield generate_progress_html(0, "\u26a0\ufe0f No translations produced."), (
@@ -362,6 +367,42 @@ def generate_media_async(
         yield generate_progress_html(100, final_label), generate_cards_html(
             cards, include_image=include_images, include_audio=tts_generated, placeholder_back=False
         )
+
+
+def _handle_export_csv(
+    scenario: str,
+    cefr_level: str,
+    target_language: str,
+):
+    """Export current cards as a zipped CSV folder.
+
+    Yields (progress_html, file_path) tuples for Gradio generator consumption.
+    """
+    from frontend.ui.cards import generate_progress_html
+
+    if not _current_cards:
+        yield generate_progress_html(0, "\u26a0\ufe0f No cards to export."), None
+        return
+
+    try:
+        from core.types import CEFRLevel
+        from export.csv_export import export_csv_zip
+
+        cefr = CEFRLevel(cefr_level)
+        zip_path = export_csv_zip(_current_cards, scenario, cefr_level, target_language)
+        yield generate_progress_html(100, "Export complete!"), zip_path
+    except Exception as e:
+        logger.error("CSV export failed: %s", e, exc_info=True)
+        yield generate_progress_html(0, f"\u26a0\ufe0f Export failed: {e}"), None
+
+
+def _handle_export_apkg_stub():
+    """Stub handler: APKG export not yet implemented.
+
+    Yields (progress_html,) tuple for Gradio generator consumption.
+    """
+    from frontend.ui.cards import generate_progress_html
+    yield generate_progress_html(0, "APKG export coming soon.")
 
 
 if __name__ == "__main__":

@@ -93,24 +93,27 @@ def test_voice_map_instruct_strings_format():
 
 
 def test_enable_phase2_returns_tuple(_mock_gradio):
-    """_enable_phase2() returns tuple of (Checkbox, Checkbox, Button, Dropdown, "")."""
+    """_enable_phase2() returns tuple of (Checkbox, Checkbox, Button, Dropdown, CSS, CSV_btn, APKG_btn)."""
     from frontend.ui.widgets import _enable_phase2
 
     result = _enable_phase2()
     assert isinstance(result, tuple)
-    assert len(result) == 5
+    assert len(result) == 7
 
 
 def test_reset_to_idle_returns_tuple(_mock_gradio):
-    """_reset_to_idle() returns tuple with interactive=False, disabled CSS string."""
+    """_reset_to_idle() returns tuple with interactive=False, disabled CSS string, plus export buttons."""
     from frontend.ui.widgets import _reset_to_idle
 
     result = _reset_to_idle()
     assert isinstance(result, tuple)
-    assert len(result) == 6
-    # Last element should be a CSS string (non-empty)
+    assert len(result) == 8
+    # Element at index 5 should be a CSS string (non-empty)
     assert isinstance(result[5], str)
     assert len(result[5]) > 0
+    # Last two elements should be export button mocks
+    assert isinstance(result[6], MagicMock)
+    assert isinstance(result[7], MagicMock)
 
 
 def test_reset_to_idle_disabled_css_content(_mock_gradio):

@@ -78,17 +78,21 @@ def _enable_phase2() -> tuple:
 
     Both Audio and Images toggles default to ON after Phase 1. Voice dropdown becomes interactive — it becomes visible when audio toggle is turned ON (via audio_toggle.change).
     Explicitly sets value=True to prevent Gradio from resetting checkbox state on re-render.
+    Also enables export buttons (CSV real, APKG stub).
 
     Returns:
-        Tuple of (images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css) updates.
+        Tuple of (images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css,
+                  export_csv_btn, export_apkg_btn) updates.
     """
     import gradio as gr
     return (
-        gr.Checkbox(interactive=True, value=True),
-        gr.Checkbox(interactive=True, value=True),
-        gr.Button(interactive=True),
-        gr.Dropdown(interactive=True),
-        "",
+        gr.Checkbox(interactive=True, value=True),     # images_toggle
+        gr.Checkbox(interactive=True, value=True),     # audio_toggle
+        gr.Button(interactive=True),                    # generate_cards_btn
+        gr.Dropdown(interactive=True),                  # voice_dropdown
+        "",                                              # phase_css
+        gr.Button(interactive=True),                    # export_csv_btn
+        gr.Button(interactive=True),                    # export_apkg_btn
     )
 
 
@@ -101,18 +105,22 @@ def _reset_to_idle() -> tuple:
     Re-applies disabled CSS to phase-2 controls.
     Keeps voice dropdown visible but disabled (it becomes interactive when audio is toggled ON after Phase 1).
     Explicitly sets value=False to prevent Gradio from resetting checkbox state on re-render.
+    Also disables export buttons until Phase 2 completes.
 
     Returns:
-        Tuple of (generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css) updates.
+        Tuple of (generate_text_btn, images_toggle, audio_toggle, generate_cards_btn,
+                  voice_dropdown, phase_css, export_csv_btn, export_apkg_btn) updates.
     """
     import gradio as gr
     return (
-        gr.Button(visible=True, interactive=True),
-        gr.Checkbox(interactive=False, value=False),
-        gr.Checkbox(interactive=False, value=False),
-        gr.Button(visible=True, interactive=False, variant="secondary"),
-        gr.Dropdown(visible=True, interactive=False),
-        """<style id="phase-css">#toggle-images, #toggle-audio { opacity: 0.45; pointer-events: none; cursor: not-allowed; } #language-dropdown, #voice-dropdown { opacity: 0.45; pointer-events: none; cursor: not-allowed; } #generate-cards-btn { opacity: 0.45; pointer-events: none; cursor: not-allowed; }</style>""",
+        gr.Button(visible=True, interactive=True),          # generate_text_btn
+        gr.Checkbox(interactive=False, value=False),       # images_toggle
+        gr.Checkbox(interactive=False, value=False),       # audio_toggle
+        gr.Button(visible=True, interactive=False, variant="secondary"),  # generate_cards_btn
+        gr.Dropdown(visible=True, interactive=False),      # voice_dropdown
+        """<style id="phase-css">#toggle-images, #toggle-audio { opacity: 0.45; pointer-events: none; cursor: not-allowed; } #language-dropdown, #voice-dropdown { opacity: 0.45; pointer-events: none; cursor: not-allowed; } #generate-cards-btn { opacity: 0.45; pointer-events: none; cursor: not-allowed; }</style>""",  # phase_css
+        gr.Button(interactive=False),                      # export_csv_btn
+        gr.Button(interactive=False),                      # export_apkg_btn
     )
 
 
@@ -176,7 +184,7 @@ def build_ui() -> "gr.Blocks":
             gr.Column(scale=1)
             with gr.Column(scale=3, elem_id="app-card"):
                 gr.HTML('<h2 style="color:#1a1a1a; font-family:sans-serif; margin-bottom:4px;">Europa Lex</h2>')
-                gr.HTML('<p style="color:#666; font-size:0.8em; margin-top:-4px; margin-bottom:12px;">AI-powered flashcard generator — translate text into European languages, generate audio &amp; images, and export Anki decks</p>')
+                gr.HTML('<p style="color:#666; font-size:0.8em; margin-top:-4px; margin-bottom:12px;">AI-powered flashcard generator — translate text into European languages, generate audio &amp; images, and export as CSV</p>')
 
                 with gr.Row():
                     scenario_input = gr.Textbox(
@@ -227,10 +235,13 @@ def build_ui() -> "gr.Blocks":
 
                 progress_html = gr.HTML(label="Progress")
 
+                # Export buttons row
                 with gr.Row():
-                    gr.Button(".apkg", interactive=False, elem_id="export-btn")
-                    gr.Button(".csv", interactive=False, elem_id="export-btn")
-                    gr.Button("Sync to Anki", interactive=False, elem_id="export-btn")
+                    export_csv_btn = gr.Button("Export CSV", elem_id="export-csv-btn")
+                    export_apkg_btn = gr.Button("Export APKG", elem_id="export-apkg-btn")
+
+                # File download component — shown when export completes
+                export_file = gr.File(label="Download Export", visible=False, elem_id="export-file")
 
             gr.Column(scale=1)
 
@@ -277,7 +288,7 @@ def build_ui() -> "gr.Blocks":
         ).then(
             fn=_enable_phase2,
             inputs=[],
-            outputs=[images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css],
+            outputs=[images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_csv_btn, export_apkg_btn],
         )
 
         # When audio toggle changes: show/hide voice dropdown and manage disabled CSS
@@ -307,9 +318,34 @@ def build_ui() -> "gr.Blocks":
         )
 
         # Reset toggles and both buttons when user changes any input parameter
-        scenario_input.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css])
-        cefr_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css])
-        batch_slider.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css])
+        scenario_input.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_csv_btn, export_apkg_btn])
+        cefr_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css, export_csv_btn, export_apkg_btn])
+        batch_slider.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_csv_btn, export_apkg_btn])
         # Language change does NOT reset — user can switch languages freely after Phase 1
+
+        # ─── Export Event Wiring ──────────────────────────────────────
+
+        def _handle_export_csv_event(scenario: str, cefr_level: str, target_language: str):
+            """Wrapper for app._handle_export_csv."""
+            yield from _app_module._handle_export_csv(scenario, cefr_level, target_language)
+
+
+        def _handle_export_apkg_event():
+            """Wrapper for app._handle_export_apkg_stub."""
+            yield from _app_module._handle_export_apkg_stub()
+
+        # Export CSV button click
+        export_csv_btn.click(
+            fn=_handle_export_csv_event,
+            inputs=[scenario_input, cefr_dropdown, language_dropdown],
+            outputs=[progress_html, export_file],
+        )
+
+        # Export APKG button click (stub)
+        export_apkg_btn.click(
+            fn=_handle_export_apkg_event,
+            inputs=[],
+            outputs=[progress_html],
+        )
 
     return demo
