@@ -334,9 +334,9 @@ def build_ui() -> "gr.Blocks":
                 yield result
 
         def _on_media_generation_complete():
-            """After Phase 2 completes: hide generate buttons, enable export button.
+            """After Phase 2 completes: hide generate buttons, enable export buttons.
 
-            Export button is always visible but becomes interactive only after
+            Export buttons are always visible but become interactive only after
             Phase 2 completes (when _current_cards is populated).
             """
             import gradio as gr
@@ -345,6 +345,8 @@ def build_ui() -> "gr.Blocks":
                 gr.Button(visible=False),       # generate_cards_btn
                 gr.Button(visible=True, interactive=True),  # export_csv_btn (enable)
                 gr.File(value=None, visible=False),  # export_file (cleared)
+                gr.Button(visible=True, interactive=True),  # export_apkg_btn (enable)
+                gr.File(value=None, visible=False),  # export_apkg_file (cleared)
             )
 
         generate_text_btn.click(
@@ -354,7 +356,7 @@ def build_ui() -> "gr.Blocks":
         ).then(
             fn=_enable_phase2,
             inputs=[],
-            outputs=[images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, export_csv_btn, phase_css],
+            outputs=[images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, export_csv_btn, export_apkg_btn, export_file, export_apkg_file, phase_css],
         )
 
         # When audio toggle changes: show/hide voice dropdown and manage disabled CSS
@@ -384,18 +386,18 @@ def build_ui() -> "gr.Blocks":
         ).then(
             fn=_on_media_generation_complete,
             inputs=[],
-            outputs=[generate_text_btn, generate_cards_btn, export_csv_btn, export_file],
+            outputs=[generate_text_btn, generate_cards_btn, export_csv_btn, export_file, export_apkg_btn, export_apkg_file],
         )
 
         # Reset toggles and both buttons when user changes any input parameter
-        scenario_input.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_csv_btn, export_file])
-        cefr_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_csv_btn, export_file])
-        batch_slider.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_csv_btn, export_file])
+        scenario_input.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_csv_btn, export_apkg_btn, export_file, export_apkg_file])
+        cefr_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_csv_btn, export_apkg_btn, export_file, export_apkg_file])
+        batch_slider.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_csv_btn, export_apkg_btn, export_file, export_apkg_file])
         # Language change — only restore Generate Cards button (toggles stay interactive)
         language_dropdown.change(
             fn=_restore_generate_cards_button_only,
             inputs=[],
-            outputs=[generate_text_btn, generate_cards_btn, export_csv_btn],
+            outputs=[generate_text_btn, generate_cards_btn, export_csv_btn, export_apkg_btn],
         )
 
         # Image toggle change — restore Generate Cards button so user can regenerate with/without images
