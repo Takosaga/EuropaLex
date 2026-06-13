@@ -160,7 +160,7 @@ class TestExportCsvZip:
         assert row[4] == "\u00a1Hola, mundo!"   # translated_text
 
     def test_media_file_copying(self, sample_cards, tmp_export_base):
-        """Audio and image files are copied into the export folder subfolders."""
+        """Audio and image files are copied into the export folder as flat files with meaningful names."""
         export_csv_zip(
             cards=sample_cards,
             scenario="ordering coffee",
@@ -169,21 +169,19 @@ class TestExportCsvZip:
         )
 
         export_dir = tmp_export_base / "ordering_coffee_A2_LV"
-        audio_dir = export_dir / "audio"
-        images_dir = export_dir / "images"
 
-        # Card 0 has both audio and image
-        assert (audio_dir / "audio_0.wav").exists()
-        assert (images_dir / "image_0.png").exists()
+        # Card 0 has both audio and image — flat naming with base prefix
+        assert (export_dir / "ordering_coffee_A2_LV_0.wav").exists()
+        assert (export_dir / "ordering_coffee_A2_LV_0.png").exists()
         # Card 1 has only image
-        assert not (audio_dir / "audio_1.wav").exists()
-        assert (images_dir / "image_1.png").exists()
+        assert not (export_dir / "ordering_coffee_A2_LV_1.wav").exists()
+        assert (export_dir / "ordering_coffee_A2_LV_1.png").exists()
         # Card 2 has only audio
-        assert (audio_dir / "audio_2.wav").exists()
-        assert not (images_dir / "image_2.png").exists()
+        assert (export_dir / "ordering_coffee_A2_LV_2.wav").exists()
+        assert not (export_dir / "ordering_coffee_A2_LV_2.png").exists()
 
     def test_zip_creation(self, sample_cards, tmp_export_base):
-        """Zip is created and extractable with expected structure."""
+        """Zip is created and extractable with expected flat structure."""
         zip_path = export_csv_zip(
             cards=sample_cards,
             scenario="ordering coffee",
@@ -197,8 +195,37 @@ class TestExportCsvZip:
         with zipfile.ZipFile(zip_path, 'r') as zf:
             names = zf.namelist()
             assert any('cards.csv' in n for n in names)
-            assert any('audio/' in n for n in names)
-            assert any('images/' in n for n in names)
+            # Verify flat structure — no audio/ or images/ subfolders
+            assert not any('audio/' in n for n in names)
+            assert not any('images/' in n for n in names)
+            # Verify meaningful filenames present
+            assert any('ordering_coffee_A2_LV_0.wav' in n for n in names)
+            assert any('ordering_coffee_A2_LV_0.png' in n for n in names)
+
+    def test_csv_media_columns_have_bare_filenames(self, sample_cards, tmp_export_base):
+        """CSV audio_filename and image_filename columns contain bare filenames, not paths."""
+        export_csv_zip(
+            cards=sample_cards,
+            scenario="ordering coffee",
+            cefr_level="A2",
+            target_language="Latvian",
+        )
+
+        csv_file = tmp_export_base / "ordering_coffee_A2_LV" / "cards.csv"
+        with open(csv_file, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            next(reader)  # skip header
+            rows = list(reader)
+
+        # Card 0: has both audio and image
+        assert rows[0][5] == "ordering_coffee_A2_LV_0.wav"   # audio_filename
+        assert rows[0][6] == "ordering_coffee_A2_LV_0.png"   # image_filename
+        # Card 1: only image
+        assert rows[1][5] == ""                                # audio_filename
+        assert rows[1][6] == "ordering_coffee_A2_LV_1.png"   # image_filename
+        # Card 2: only audio
+        assert rows[2][5] == "ordering_coffee_A2_LV_2.wav"   # audio_filename
+        assert rows[2][6] == ""                                # image_filename
 
     def test_missing_media_files_handled(self, tmp_export_base):
         """Export succeeds even when media files don't exist."""
