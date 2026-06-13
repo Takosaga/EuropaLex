@@ -69,17 +69,17 @@ def export_csv_zip(
 ) -> str:
     """Export cards as a zipped folder containing CSV + media files.
 
-    Creates a folder under {models_dir}/output/export/ with the following structure:
+    Creates a folder under {models_dir}/output/export/ with the following flat structure:
         {folder_name}/
             cards.csv                          (CSV with 7 columns, one row per card)
-            audio/audio_0.wav                  (copied from TTS output)
-            images/image_0.png                 (copied from image generation)
+            {scenario_slug}_{CEFR}_{LANG}_0.wav   (copied from TTS output)
+            {scenario_slug}_{CEFR}_{LANG}_0.png   (copied from image generation)
         {folder_name}.zip                       (zipped archive of the above)
 
     CSV columns: scenario, cefr_level, target_language, english_text, translated_text,
                  audio_filename, image_filename
 
-    Media filenames are relative paths within the export folder (e.g., 'audio/audio_0.wav').
+    Media filenames are bare filenames in the export folder (e.g., 'ordering_coffee_A2_LV_0.wav').
     Missing media files are silently skipped — CSV entries remain empty strings.
 
     Args:
@@ -107,13 +107,7 @@ def export_csv_zip(
     export_dir = export_base / folder_name
     export_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create subfolders for media
-    audio_dir = export_dir / "audio"
-    images_dir = export_dir / "images"
-    audio_dir.mkdir(exist_ok=True)
-    images_dir.mkdir(exist_ok=True)
-
-    # Copy media files and build CSV rows
+    # Copy media files and build CSV rows (flat folder — no subfolders)
     csv_path = export_dir / "cards.csv"
     with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
         writer = csv.writer(csvfile, quoting=csv.QUOTE_ALL)
@@ -127,19 +121,22 @@ def export_csv_zip(
             audio_path = card.get('audio_path')
             image_path = card.get('image_path')
 
-            # Copy audio file if it exists
+            # Build the common prefix: {scenario_slug}_{CEFR}_{LANG_ABBREV}
+            base_name = f"{scenario_slug}_{cefr_level}_{lang_abbrev}"
+
+            # Copy audio file if it exists — flat naming
             audio_filename = ''
             if audio_path and Path(audio_path).exists():
-                audio_dst = audio_dir / f"audio_{i}.wav"
+                audio_dst = export_dir / f"{base_name}_{i}.wav"
                 shutil.copy2(audio_path, audio_dst)
-                audio_filename = f"audio/audio_{i}.wav"
+                audio_filename = f"{base_name}_{i}.wav"
 
-            # Copy image file if it exists
+            # Copy image file if it exists — flat naming
             image_filename = ''
             if image_path and Path(image_path).exists():
-                image_dst = images_dir / f"image_{i}.png"
+                image_dst = export_dir / f"{base_name}_{i}.png"
                 shutil.copy2(image_path, image_dst)
-                image_filename = f"images/image_{i}.png"
+                image_filename = f"{base_name}_{i}.png"
 
             writer.writerow([
                 scenario,
