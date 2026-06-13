@@ -93,12 +93,16 @@ def test_voice_map_instruct_strings_format():
 
 
 def test_enable_phase2_returns_tuple(_mock_gradio):
-    """_enable_phase2() returns tuple of (Checkbox, Checkbox, Button, Dropdown, CSS, CSV_btn, APKG_btn)."""
+    """_enable_phase2() returns tuple of (Checkbox, Checkbox, Button, Dropdown, CSS).
+
+    Export buttons are NOT enabled here — they are enabled after Phase 2 completes
+    (when _current_cards is populated) via _on_media_generation_complete().
+    """
     from frontend.ui.widgets import _enable_phase2
 
     result = _enable_phase2()
     assert isinstance(result, tuple)
-    assert len(result) == 7
+    assert len(result) == 5
 
 
 def test_reset_to_idle_returns_tuple(_mock_gradio):
