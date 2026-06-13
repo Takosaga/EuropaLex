@@ -147,3 +147,100 @@ class TestNoteCreation:
             image_path=None,
         )
         assert len(note.fields) == 4
+
+
+class TestPackageGeneration:
+    """Tests for _create_package function."""
+
+    def test_package_returns_path(self, tmp_path):
+        """_create_package returns an absolute path string."""
+        model = _create_model()
+        notes = [
+            _create_note(model, "Hola", "Hello"),
+            _create_note(model, "Adios", "Goodbye"),
+        ]
+        pkg_path = _create_package(notes, scenario="greetings", cefr_level="A1", target_language="Spanish")
+        assert isinstance(pkg_path, str)
+        assert Path(pkg_path).is_absolute()
+
+    def test_package_is_valid_zip(self, tmp_path):
+        """Generated .apkg is a valid zip file."""
+        model = _create_model()
+        notes = [_create_note(model, "Hola", "Hello")]
+        pkg_path = _create_package(notes, scenario="test", cefr_level="A1", target_language="Spanish")
+        assert zipfile.is_zipfile(pkg_path)
+
+    def test_package_has_collection_anki2(self, tmp_path):
+        """Package contains collection.anki2 database."""
+        model = _create_model()
+        notes = [_create_note(model, "Hola", "Hello")]
+        pkg_path = _create_package(notes, scenario="test", cefr_level="A1", target_language="Spanish")
+        with zipfile.ZipFile(pkg_path, 'r') as zf:
+            assert 'collection.anki2' in zf.namelist()
+
+    def test_package_has_media_manifest(self, tmp_path):
+        """Package contains media JSON manifest."""
+        model = _create_model()
+        notes = [_create_note(model, "Hola", "Hello")]
+        pkg_path = _create_package(notes, scenario="test", cefr_level="A1", target_language="Spanish")
+        with zipfile.ZipFile(pkg_path, 'r') as zf:
+            assert 'media' in zf.namelist()
+            manifest = json.loads(zf.read('media'))
+            assert isinstance(manifest, dict)
+
+    def test_package_deck_name_includes_scenario(self, tmp_path):
+        """Deck name derives from scenario with CEFR and language abbreviation."""
+        model = _create_model()
+        notes = [_create_note(model, "Hola", "Hello")]
+        pkg_path = _create_package(notes, scenario="ordering coffee", cefr_level="A2", target_language="Latvian")
+        import sqlite3
+        with zipfile.ZipFile(pkg_path, 'r') as zf:
+            db_bytes = zf.read('collection.anki2')
+        tmp_db = tmp_path / "temp.db"
+        tmp_db.write_bytes(db_bytes)
+        conn = sqlite3.connect(str(tmp_db))
+        cur = conn.cursor()
+        # Decks are stored as JSON in the 'decks' column of the 'col' table
+        # Structure: {deck_id_str: {name: "...", ...}}
+        cur.execute("SELECT decks FROM col")
+        row = cur.fetchone()
+        if row and row[0]:
+            decks_data = json.loads(row[0])
+            # Find any deck with 'ordering_coffee' in its name
+            found = any(
+                isinstance(v, dict) and 'ordering_coffee' in v.get('name', '').lower()
+                for v in decks_data.values()
+            )
+            assert found, f"Deck name not found. Decks data: {decks_data}"
+        conn.close()
+
+    def test_package_contains_all_notes(self, tmp_path):
+        """Package database contains the correct number of notes."""
+        model = _create_model()
+        notes = [
+            _create_note(model, "A", "1"),
+            _create_note(model, "B", "2"),
+            _create_note(model, "C", "3"),
+        ]
+        pkg_path = _create_package(notes, scenario="test", cefr_level="A1", target_language="Spanish")
+        import sqlite3
+        with zipfile.ZipFile(pkg_path, 'r') as zf:
+            db_bytes = zf.read('collection.anki2')
+        tmp_db = tmp_path / "temp.db"
+        tmp_db.write_bytes(db_bytes)
+        conn = sqlite3.connect(str(tmp_db))
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM notes")
+        count = cur.fetchone()[0]
+        conn.close()
+        assert count == 3
+
+    def test_package_no_media_files_when_none(self, tmp_path):
+        """Package has no media files when all audio/image paths are None."""
+        model = _create_model()
+        notes = [_create_note(model, "Hola", "Hello")]
+        pkg_path = _create_package(notes, scenario="test", cefr_level="A1", target_language="Spanish")
+        with zipfile.ZipFile(pkg_path, 'r') as zf:
+            names = zf.namelist()
+            # Should only have collection.anki2 and media — no numbered files or .wav/.png
+            assert len([n for n in names if n.endswith('.wav') or n.endswith('.png')]) == 0

@@ -109,9 +109,95 @@ def _create_note(
     )
 
 
-def _create_package(*args, **kwargs):  # type: ignore[no-untyped-def]
-    """Stub — replaced in Task 4."""
-    raise NotImplementedError("_create_package not yet implemented")
+def _sanitize_folder_name(scenario: str) -> str:
+    """Convert scenario text to a filesystem-safe folder name slug.
+
+    Lowercase, remove special characters (keep alphanumeric, spaces, underscores),
+    replace spaces with underscores, collapse multiple spaces, strip leading/trailing underscores.
+
+    Args:
+        scenario: Free-form scenario string.
+
+    Returns:
+        Slug suitable for use as a folder or deck name.
+    """
+    import re
+    slug = scenario.lower()
+    slug = re.sub(r'[^a-z0-9_ ]', '', slug)
+    slug = re.sub(r'\s+', '_', slug)
+    slug = slug.strip('_')
+    return slug
+
+
+def _get_language_abbrev(language: str) -> str:
+    """Return the ISO 639-1 abbreviation for a language name.
+
+    Args:
+        language: Language name (e.g., 'Latvian', 'Spanish').
+
+    Returns:
+        Two-letter ISO 639-1 code.
+
+    Raises:
+        ValueError: If the language is not in the supported mapping.
+    """
+    _LANGUAGE_ABBREVS = {
+        "Latvian": "LV",
+        "Spanish": "ES",
+        "French": "FR",
+        "German": "DE",
+        "Polish": "PL",
+        "Italian": "IT",
+        "Portuguese": "PT",
+        "Finnish": "FI",
+    }
+    if language not in _LANGUAGE_ABBREVS:
+        raise ValueError(
+            f"Unknown language '{language}'. "
+            f"Supported: {', '.join(sorted(_LANGUAGE_ABBREVS.keys()))}"
+        )
+    return _LANGUAGE_ABBREVS[language]
+
+
+def _create_package(
+    notes: list["genanki.Note"],
+    scenario: str,
+    cefr_level: str,
+    target_language: str,
+) -> str:
+    """Create a genanki Package (.apkg) from notes and return its path.
+
+    Args:
+        notes: List of genanki.Note instances.
+        scenario: Free-form scenario/topic string (used in deck name).
+        cefr_level: CEFR level string (e.g., 'A2', 'B1').
+        target_language: Target language name (e.g., 'Latvian').
+
+    Returns:
+        Absolute path to the generated .apkg file.
+    """
+    import genanki
+    import tempfile
+    import uuid
+
+    # Build deck name using same convention as CSV export
+    scenario_slug = _sanitize_folder_name(scenario)
+    lang_abbrev = _get_language_abbrev(target_language)
+    deck_name = f"{scenario_slug}_{cefr_level}_{lang_abbrev}"
+
+    deck = genanki.Deck(
+        deck_id=int(uuid.uuid4().hex[:8], 16),
+        name=deck_name,
+    )
+
+    for note in notes:
+        deck.add_note(note)
+
+    # Write to temp dir — caller decides where to save
+    with tempfile.NamedTemporaryFile(suffix='.apkg', delete=False) as f:
+        pkg = genanki.Package(deck)
+        pkg.write_to_file(f.name)
+        return f.name
 
 
 def _inject_media(*args, **kwargs):  # type: ignore[no-untyped-def]
