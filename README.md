@@ -31,15 +31,32 @@ uv run app.py
 
 > **Dependencies:** This project requires PyTorch, diffusers, omnivoice, pydantic, and soundfile in addition to Gradio. These are installed automatically by `uv sync`.
 
-### Running Smoke Tests
+### Running Tests
 
-Before committing, verify all modules load correctly:
+All tests use pytest. Run the full suite:
 
 ```bash
-uv run python scripts/smoke_test.py
+# Run all tests
+uv run pytest tests/ -v
+
+# Run specific test file
+uv run pytest tests/cards_test.py -v
+
+# Run with coverage
+uv run pytest tests/ -v --cov=core --cov=frontend --cov=app.py
 ```
 
-This checks imports for core types, engine classes, frontend UI, and the app module.
+The test suite mocks all GPU/model code — no model weights or GPU required to run tests.
+
+### Quick Smoke Check
+
+For a quick sanity check before committing:
+
+```bash
+uv run pytest tests/smoke_test.py -v
+```
+
+This checks imports for core types, engine classes, frontend UI, and the app module. The Gradio app must construct without errors — all widgets are created inside a `gr.Blocks()` context and the context variable is returned (not a fresh empty `Blocks` instance). Generator event handlers use `yield (val1, val2)` not `yield from` to match output component counts.
 
 ### Model Weights
 
@@ -118,7 +135,7 @@ EuropaLex is organized into five main modules:
 
 | Module | Purpose |
 |---|---|
-| `core/` | Data types (`types.py`), inference engines (`engine.py`), sentence extraction & generation helpers (`text_gen.py`), Phase 2 translation orchestration (`pipeline.py`) |
+| `core/` | Data types (`types.py`), text engines + EnginePool (`engine.py`), TTS (`audio_gen.py`), image gen (`image_gen.py`), sentence extraction & generation helpers (`text_gen.py`), Phase 2 translation orchestration (`pipeline.py`) |
 | `frontend/` | Gradio 6 UI: styled toggles (`widgets.py`), card rendering with two-phase layout (`cards.py`), custom CSS (`css/custom.css`) |
 | `models/` | Hugging Face Hub model downloader — fetches models at runtime, no git submodules |
 | `export/` | `.apkg` Anki package generator, CSV export, Anki tunnel sync via MCP server |
@@ -127,14 +144,14 @@ EuropaLex is organized into five main modules:
 ### Data Flow
 
 ```
-User Input → [Gradio UI] → EnginePool (singleton) → MiniCPMTextEngine (Phase 1) → pipeline.generate_phase2() → LlamaCppTextEngine (translation, Phase 2) → TTSEngine (TTS audio, Phase 2) → Card Gallery → Export (.apkg / .csv)
+User Input → [Gradio UI] → EnginePool (singleton) → MiniCPMTextEngine (Phase 1) → pipeline.generate_phase2() → LlamaCppTextEngine (translation, Phase 2) → TTSEngine (`core/audio_gen.py`, TTS audio, Phase 2) → Card Gallery → Export (.apkg / .csv)
 ```
 
 - **Inference:** `core/engine.py` defines five engine classes:
   - `MiniCPMTextEngine` — llama-cpp-python wrapper for MiniCPM5-1B Q8_0 (lazy-load/unload, ~1.1 GB RAM, uses apply_chat_template). Uses `TextResult.validate_and_parse()` to strip `<thinking>` tags and enforce exact sentence count; retries with stricter prompts on mismatch (max 3 attempts). Used in Phase 1 for English text generation only.
   - `LlamaCppTextEngine` — llama-cpp-python wrapper for tiny-aya-water translation (lazy-load/unload, ~2 GB VRAM). Validates output line count against `batch_size`; retries with stricter prompts on mismatch (max 3 attempts). Used in Phase 2 for translation.
-  - `TTSEngine` — OmniVoice Python package with lazy-load/unload cycle. Supports voice design mode via `instruct` parameter (e.g., "female, young adult"). Used in Phase 2 for TTS audio.
-  - `ImageGenEngine` — diffusers Flux2KleinPipeline with lazy-load/unload cycle (GPU memory managed by EnginePool). Image generation toggle is available but not yet wired into the pipeline.
+  - `TTSEngine` (`core/audio_gen.py`) — OmniVoice Python package with lazy-load/unload cycle. Supports voice design mode via `instruct` parameter (e.g., "female, young adult"). Used in Phase 2 for TTS audio.
+  - `ImageGenEngine` (`core/image_gen.py`) — diffusers Flux2KleinPipeline with lazy-load/unload cycle (GPU memory managed by EnginePool). Image generation toggle is available but not yet wired into the pipeline.
   - `EnginePool` — singleton orchestrator enforcing mutual exclusion between all GPU engines. Phase 1 uses only `MiniCPMTextEngine` (~1.1 GB RAM). Phase 2 loads GPU engines sequentially: translation → TTS/images.
 - **Types:** `core/types.py` provides Pydantic models (`CardData`, `CEFRLevel`, `ValidationError`, `TextResult`, `AudioResult`, `ImageResult`, `EngineConfig`) for type-safe boundaries. `TextResult.generated_texts` replaces the legacy `.translations`; `AudioResult.audio_paths` and `ImageResult.image_paths` are `list[str | None]` (never None at top level).
 - **Pipeline:** `core/pipeline.py` provides `generate_phase2()` — a generator function that yields `(progress_percent, phase_label, cards)` tuples for real-time UI updates. Extends this when adding new media types (TTS, images).
@@ -155,7 +172,9 @@ EuropaLex/
 ├── core/                   # Shared business logic
 │   ├── __init__.py
 │   ├── types.py            # Pydantic models: CardData, CEFRLevel, TextResult, AudioResult, ImageResult, EngineConfig
-│   ├── engine.py           # MiniCPMTextEngine (MiniCPM5-1B/llama-cpp-python), LlamaCppTextEngine (tiny-aya/llama-cpp-python), TTSEngine (OmniVoice), ImageGenEngine (diffusers), EnginePool singleton
+│   ├── engine.py           # MiniCPMTextEngine, LlamaCppTextEngine, EnginePool
+│   ├── audio_gen.py        # TTSEngine (OmniVoice)
+│   └── image_gen.py        # ImageGenEngine (diffusers Flux2KleinPipeline)
 │   ├── text_gen.py         # Sentence extraction (extract_sentences) and generation with retry loop (generate_sentences)
 │   └── pipeline.py         # Phase 2 translation orchestration — generate_phase2() generator with progress tracking
 ├── frontend/               # Gradio 6 UI
@@ -180,8 +199,12 @@ EuropaLex/
 │   └── superpowers/
 │       ├── specs/          # Design specification documents
 │       └── plans/          # Implementation plans
-└── scripts/                # Utility scripts
-    └── smoke_test.py       # Quick sanity check script
+├── tests/                  # Test suite (pytest-discoverable)
+│   ├── smoke_test.py       # Integration test — module imports, app construction
+│   ├── count_enforcement_test.py  # TextResult.validate_and_parse() testing
+│   ├── extract_sentences_test.py  # core.text_gen.extract_sentences() testing
+│   ├── progression_test.py      # _progress_pct() helper testing
+│   └── translation_retry_test.py# LlamaCppTextEngine retry loop testing
 ```
 
 ## CEFR Levels

@@ -154,6 +154,28 @@ Use `frontend/ui/cards.py:generate_progress_html(percent, phase_label)`. The fun
 
 Return empty string (`""`) when `percent <= 0` — Gradio will hide the element.
 
+### Generator Event Handlers
+
+All Gradio event handlers that produce multiple outputs (progress bar + card gallery) must be **generator functions** that yield tuples matching the output order:
+
+```python
+def my_handler(...):
+    # ... work ...
+    yield progress_html, cards_html  # matches [output1, output2]
+```
+
+When a helper function returns a tuple (e.g., `_enable_language_dropdown_on_audio()` returns `(dropdown_update, css_html)`), use `yield` — **not** `yield from`. The `yield` passes the entire tuple as one Gradio output; `yield from` unpacks it into individual yields, causing a `ValueError: didn't return enough output values` error.
+
+```python
+# CORRECT:
+def _on_audio_toggle_change(is_checked):
+    yield _enable_language_dropdown_on_audio(is_checked)  # one tuple → two outputs
+
+# WRONG — unpacks tuple into separate yields:
+def _on_audio_toggle_change(is_checked):
+    yield from _enable_language_dropdown_on_audio(is_checked)
+```
+
 ## Core Module Rules
 
 ### types.py
@@ -210,33 +232,44 @@ Phase 2 translation orchestration layer. Provides `generate_phase2()` as a gener
 
 ## Testing Expectations
 
-### Smoke Tests
+### Pytest Test Suite
 
-Run `scripts/smoke_test.py` before committing. It performs a quick sanity check: imports all modules, validates dataclasses, and checks that the Gradio app can be constructed without errors.
+All tests use pytest. Run the full suite before committing:
 
 ```bash
-python scripts/smoke_test.py
+uv run pytest tests/ -v
 ```
 
-Expected output: clean exit (no traceback). If it fails, something is broken at the module level.
+**Test file naming convention:** `*_test.py` — one file per source module, flat structure in `tests/`:
 
-### Mock Data
+| Test File | Covers |
+|---|---|
+| `conftest.py` | Shared fixtures (mock data, paths, temp dirs) |
+| `smoke_test.py` | Import validation + Pydantic model construction |
+| `cards_test.py` | Card HTML rendering functions |
+| `widgets_test.py` | Widget creation and UI state helpers |
+| `app_test.py` | App async generators and helper functions |
+| `audio_gen_test.py` | TTSEngine (TTS audio generation) |
+| `image_gen_test.py` | ImageGenEngine (image generation) |
+| `engine_test.py` | MiniCPMTextEngine, LlamaCppTextEngine, EnginePool |
+| `pipeline_test.py` | Phase 2 orchestration |
+| `text_gen_test.py` | Sentence extraction + text generation |
 
-The frontend can render cards from mock data (no model inference needed). When testing UI changes:
-- Use `frontend/ui/cards.py:render_card_html()` directly with a dict like `{"text": "Hello", "translation": "Sveiki"}`
-- The card renderer handles missing fields gracefully — `translation` defaults to empty string, `audio_path`/`image_path` are ignored in HTML rendering.
+### Writing Tests
 
-### Inline Tests for Engine Retry Logic
+- Use fixtures from `tests/conftest.py` for mock data and paths.
+- Mock all GPU/model code via `unittest.mock.patch` — no real inference needed.
+- Use assertions (`assert`, `pytest.raises`) instead of print statements.
+- Generator functions consumed via `list(handler(...))` to capture all yields.
+- Real `.wav` and `.png` files from `tests/test_outputs/` serve as file-existence fixtures.
 
-For engine classes with retry loops, add inline tests that mock the LLM and verify count validation. See `scripts/test_translation_retry.py` as an example — it tests `LlamaCppTextEngine.generate()` retry logic (exact count, short output, exhausted retries, empty output) without requiring a running model.
+### Smoke Tests
 
-### Inline Tests
+Run `uv run pytest tests/smoke_test.py -v` for a quick sanity check: imports all modules, validates Pydantic models, and checks that the Gradio app can be constructed without errors.
 
-For new modules with non-trivial logic, add a test script in `scripts/` guarded by `if __name__ == "__main__":`. See `scripts/test_count_enforcement.py` as an example — it tests `TextResult.validate_and_parse()` (thinking-tag stripping, line-count enforcement) and retry-prompt logic without requiring model inference.
+### Inline Tests (Legacy)
 
-### No Unit Test Framework Required (Yet)
-
-The project currently uses smoke tests and inline tests. If you add a new module with non-trivial logic (>30 lines of business logic), consider adding inline assertions or a simple test function at the bottom of the file guarded by `if __name__ == "__main__":`.
+The old `if __name__ == "__main__":` inline test pattern is deprecated. All tests should be in `*_test.py` files under `tests/`. Do not add new inline tests.
 
 ## Adding New Features
 
@@ -247,7 +280,7 @@ Use this checklist when extending EuropaLex:
 3. **Implement core logic** — In `core/` or the appropriate module. Follow the protocol pattern from `engine.py`.
 4. **Wire up the UI** — Add widgets in `frontend/ui/widgets.py`, renderers in `frontend/ui/cards.py`. Update `app.py` click handlers last.
 5. **Update CSS if needed** — New visual elements go in `frontend/css/custom.css`. Keep inline styles only for card-level dynamic properties (rotation, conditional display).
-6. **Test with smoke test** — Run `python scripts/smoke_test.py`.
+6. **Test** — Run `uv run pytest tests/smoke_test.py -v` for a quick sanity check.
 7. **Commit** — One logical change per commit. Message format: `type: brief description` (e.g., `feat: add Japanese language support`, `fix: card rotation overflow`).
 
 ## Git Workflow
@@ -270,7 +303,7 @@ Use [Conventional Commits](https://www.conventionalcommits.org/) prefix:
 
 ### Before Merging
 
-1. Run `python scripts/smoke_test.py` — must pass
+1. Run `uv run pytest tests/ -v` — must pass
 2. Verify the Gradio app starts: `python app.py` — must launch without errors on port 7860
 3. Check that all new code follows the conventions in this document
 
@@ -327,3 +360,43 @@ The voice dropdown starts hidden (`visible = False`) and only becomes visible wh
 ### 8. LLM output may not match expected count
 
 Both `MiniCPMTextEngine.generate()` and `LlamaCppTextEngine.generate()` validate output count against `batch_size` and retry automatically (max 3 attempts). Do **not** slice output with `[:batch_size]` as a band-aid — the engines already handle this via retry loops. If you bypass an engine and call an LLM directly, you must implement the same validation logic.
+
+### 9. Gradio Blocks context and return value
+
+When building UI in `frontend/ui/widgets.py:build_ui()`, all widget creation and event wiring **must** be wrapped in `with gr.Blocks() as demo:` — Gradio requires all widgets and their event handlers to be inside a Blocks context. The function must **return `demo`** (the context variable), not create a fresh empty `gr.Blocks()` instance. Creating widgets inside an implicit context but returning a brand new empty `Blocks` object causes Gradio's exit handler to fail when reconciling widget state.
+
+```python
+# CORRECT:
+def build_ui():
+    with gr.Blocks() as demo:
+        gr.Button("Click me")
+        # ... more widgets and event wiring ...
+    return demo  # Return the context variable
+
+# WRONG — returns a different empty Blocks, widget state is lost:
+def build_ui():
+    with gr.Blocks() as demo:
+        gr.Button("Click me")
+    return grBlocks()  # ❌ Gradio exit handler fails
+
+### 10. Gradio generator event handlers: `yield` not `yield from`
+
+Gradio's generator-based event handlers expect a **single yield** that produces a tuple matching the number of output components:
+
+```python
+# CORRECT — one yield, one tuple with N values:
+def my_handler():
+    yield (val1, val2, val3)  # matches [output1, output2, output3]
+
+# WRONG — yield from unpacks the tuple into separate yields:
+def my_handler():
+    yield from (val1, val2, val3)  # Gradio sees: val1, then val2, then val3
+```
+
+When a helper function returns a tuple (e.g., `_enable_language_dropdown_on_audio()` returns `(dropdown_update, css_html)`), the event handler must use `yield` to pass the tuple as a single value — **not** `yield from`, which unpacks it into individual yields. Gradio then sees fewer values than expected and raises:
+
+```
+ValueError: A function didn't return enough output values (needed: N, returned: M).
+```
+
+This applies to all generator click/change handlers in `frontend/ui/widgets.py:build_ui()`.
