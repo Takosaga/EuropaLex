@@ -25,3 +25,7 @@ packages = ["core", "export", "frontend", "models"]
 
 [tool.uv.pip]
 extra-index-url = ["https://abetlen.github.io/llama-cpp-python/whl/cu130"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "*_test.py"
