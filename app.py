@@ -7,6 +7,30 @@ No backend connection — visual preview only.
 Run: uv sync && python app.py
 """
 
+# ─── Disable Gradio's BrotliMiddleware BEFORE any other imports ────
+# Gradio 6.x adds BrotliMiddleware which has a known bug with h11:
+# For streaming responses (generator yields), the middleware deletes
+# Content-Length and uses chunked transfer encoding, but h11 can
+# miscalculate content length from the first compressed chunk,
+# then reject subsequent chunks as "Too much data for declared
+# Content-Length". We disable it by replacing the class in routes.py.
+try:
+    import gradio.routes as _routes_mod
+    from gradio.brotli_middleware import BrotliMiddleware
+
+    class _PassthroughMiddleware:
+        """Drop-in replacement that passes all requests through uncompressed."""
+
+        def __init__(self, app, **kwargs):
+            self.app = app
+
+        async def __call__(self, scope, receive, send):
+            await self.app(scope, receive, send)
+
+    _routes_mod.BrotliMiddleware = _PassthroughMiddleware  # type: ignore[assignment]
+except Exception:
+    pass  # Non-critical; app will work without this patch
+
 import logging
 import os
 from pathlib import Path
@@ -405,32 +429,6 @@ def _handle_export_apkg_stub():
 
 
 if __name__ == "__main__":
-    # ─── Disable Gradio's BrotliMiddleware ─────────────────────────
-    # Gradio 6.x adds BrotliMiddleware which has a known bug with h11:
-    # For streaming responses (generator yields), the middleware deletes
-    # Content-Length and uses chunked transfer encoding, but h11 can
-    # miscalculate content length from the first compressed chunk,
-    # then reject subsequent chunks as "Too much data for declared
-    # Content-Length". We disable it by replacing the class in routes.py
-    # before build_ui() creates the Gradio app.
-    try:
-        import gradio.routes as _routes_mod
-        from gradio.brotli_middleware import BrotliMiddleware
-
-        class _PassthroughMiddleware:
-            """Drop-in replacement that passes all requests through uncompressed."""
-
-            def __init__(self, app, **kwargs):
-                self.app = app
-
-            async def __call__(self, scope, receive, send):
-                await self.app(scope, receive, send)
-
-        # Replace in routes.py's local namespace so create_app uses passthrough
-        _routes_mod.BrotliMiddleware = _PassthroughMiddleware  # type: ignore[assignment]
-    except Exception:
-        pass  # Non-critical; app will work without this patch
-
     from frontend.ui.widgets import build_ui
 
     css_path = os.path.join(os.path.dirname(__file__), "frontend", "css", "custom.css")
