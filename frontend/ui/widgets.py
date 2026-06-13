@@ -297,7 +297,7 @@ def build_ui() -> "gr.Blocks":
                     label="Download CSV", file_types=[".zip"], visible=False
                 )
                 export_apkg_file = gr.File(
-                    label="Download Anki Cards", file_types=[".apkg"], visible=False
+                    label="Download Anki Cards", file_types=[".zip"], visible=False
                 )
 
             gr.Column(scale=1)
@@ -446,12 +446,12 @@ def build_ui() -> "gr.Blocks":
             outputs=[progress_html, export_file, export_file],
         )
 
-        # ─── APKG Export Event Wiring ───────────────────────────────
+        # ─── Anki CSV Export Event Wiring ─────────────────────────────
 
-        def _handle_export_apkg_event(scenario: str, cefr_level: str, target_language: str):
-            """Export current cards as Anki package (.apkg).
+        def _handle_export_csv_for_anki_event(scenario: str, cefr_level: str, target_language: str):
+            """Export current cards as Anki-compatible CSV zip.
 
-            Sets the generated .apkg file path as the value of export_apkg_file component,
+            Sets the generated .zip file path as the value of export_apkg_file component,
             which Gradio renders as a downloadable file link.
             """
             from frontend.ui.cards import generate_progress_html
@@ -460,19 +460,19 @@ def build_ui() -> "gr.Blocks":
                 return generate_progress_html(0, "\u26a0\ufe0f No cards to export."), None, gr.File(visible=False)
 
             try:
-                apkg_path = _app_module._handle_export_apkg(scenario, cefr_level, target_language)
-                if apkg_path is None:
+                zip_path = _app_module._handle_export_csv_for_anki(scenario, cefr_level, target_language)
+                if zip_path is None:
                     return generate_progress_html(0, "\u26a0\ufe0f Export failed."), None, gr.File(visible=False)
                 # Show the file for download — gr.File component renders it as a clickable link
-                return generate_progress_html(100, "Export complete! Click the file below to download."), apkg_path, gr.File(visible=True)
+                return generate_progress_html(100, "Export complete! Click the file below to download."), zip_path, gr.File(visible=True)
             except Exception as e:
                 logger = logging.getLogger(__name__)
-                logger.error("APKG export failed: %s", e, exc_info=True)
+                logger.error("Anki CSV export failed: %s", e, exc_info=True)
                 return generate_progress_html(0, f"\u26a0\ufe0f Export failed: {e}"), None, gr.File(visible=False)
 
-        # APKG Export button click — generates .apkg and shows it in gr.File for download
+        # Anki CSV Export button click — generates zip and shows it in gr.File for download
         export_apkg_btn.click(
-            fn=_handle_export_apkg_event,
+            fn=_handle_export_csv_for_anki_event,
             inputs=[scenario_input, cefr_dropdown, language_dropdown],
             outputs=[progress_html, export_apkg_file, export_apkg_file],
         )
