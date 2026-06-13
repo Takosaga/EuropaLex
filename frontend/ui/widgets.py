@@ -187,8 +187,8 @@ def build_ui() -> "gr.Blocks":
                     )
                     cefr_dropdown = gr.Dropdown(
                         label="CEFR Level",
-                        choices=["A0", "A1", "A2", "B1", "B2"],
-                        value="B1",
+                        choices=["A1", "A2", "B1", "B2"],
+                        value="A2",
                         elem_id="cefr-dropdown",
                     )
                     batch_slider = gr.Slider(
