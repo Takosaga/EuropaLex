@@ -6,7 +6,7 @@ Guidelines for AI coding agents working on this codebase. Follow these conventio
 
 ## Project Overview
 
-EuropaLex generates Anki-compatible flashcards for European languages using local AI models. It takes user input (text or scenario description), generates target-language translations at a selected CEFR level, and enriches cards with text-to-speech audio and illustrative images. Cards export as a zipped CSV folder (with media files) or `.apkg` (stub).
+EuropaLex generates Anki-compatible flashcards for European languages using local AI models. It takes user input (text or scenario description), generates target-language translations at a selected CEFR level, and enriches cards with text-to-speech audio and illustrative images. Cards export as a zipped CSV folder (with media files) or an Anki-compatible `.apkg` package.
 
 **Tech Stack:**
 - Python 3.12+
@@ -35,7 +35,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 - `core/` — Pydantic types (`types.py`), inference engines + EnginePool singleton (`engine.py`), sentence extraction & generation helpers (`text_gen.py`), Phase 2 translation orchestration (`pipeline.py`)
 - `frontend/` — Gradio UI: widgets, card rendering, custom CSS
 - `models/` — HF Hub model downloader
-- `export/` — .apkg generator (stub), CSV zip export, Anki tunnel sync (unused)
+- `export/` — .apkg package generator (genanki-based), CSV zip export, Anki tunnel sync (unused)
 - `app.py` — entry point, wires everything together (Phase 1 generates English text via MiniCPM; Phase 2 translates via tiny-aya)
 
 ## Code Structure
@@ -48,7 +48,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 | `core/text_gen.py` | Sentence extraction (`extract_sentences`) and LLM generation with retry loop (`generate_sentences`) | Import from other modules for text generation logic |
 | `frontend/` | Render UI, handle Gradio events, style cards | Implement inference logic or export formats |
 | `models/` | Download and locate models | Run inference or generate content |
-| `export/` | Generate .apkg (stub), CSV zip export with media files | Import from `frontend/` |
+| `export/` | Generate .apkg package with genanki, CSV zip export with media files | Import from `frontend/` |
 | `app.py` | Wire modules together, define Gradio click handlers | Contain business logic (delegate to `core/`) |
 
 ### File Organization Rules
@@ -258,6 +258,7 @@ uv run pytest tests/ -v
 | `pipeline_test.py` | Phase 2 orchestration |
 | `text_gen_test.py` | Sentence extraction + text generation |
 | `csv_export_test.py` | CSV zip export (folder naming, CSV columns, media copying, zip creation) |
+| `apkg_generator_test.py` | APKG package generation (note creation, media injection with MD5 hashing, deduplication, manifest update) |
 
 ### Writing Tests
 
@@ -369,11 +370,13 @@ _phase1_texts = []
 
 ### 7. Export button outputs must be included in state transitions
 
-Both `_enable_phase2()` and `_reset_to_idle()` return tuples that map to Gradio output component order. If you add new phase-dependent controls (export buttons, file download components), include them in both functions' return tuples AND in all `.then()` / `.change()` calls that reference these functions. Missing an output causes `ValueError: didn't return enough output values`.
+Both `_enable_phase2()` and `_reset_to_idle()` return tuples that map to Gradio output component order. There are two export buttons (`export_csv_btn`, `export_apkg_btn`) and two file download components (`export_file`, `export_apkg_file`). If you add new phase-dependent controls (additional export buttons, file download components), include them in both functions' return tuples AND in all `.then()` / `.change()` calls that reference these functions. Missing an output causes `ValueError: didn't return enough output values`. The helper `_on_media_generation_complete()` must enable **both** export buttons and clear **both** file components on completion.
 
 ### 8. Export media file naming convention
 
 Media files exported via `csv_export.py` follow the pattern `{scenario_slug}_{CEFR}_{LANG_ABBREV}_{card_index}.{ext}` (e.g., `ordering_coffee_A2_LV_0.wav`). Files are placed in a flat folder alongside `cards.csv` — no `audio/` or `images/` subfolders. Language abbreviations use ISO 639-1 codes without periods (LV, ES, FR, DE, PL, IT, PT, FI). CSV `audio_filename` and `image_filename` columns contain just the filename string (not a path).
+
+APKG export via `apkg_generator.py` uses genanki to build a proper Anki package. Media files are injected into `.apkg` using MD5 hashing for deduplication, with a manifest file updated in the archive. The APKG format stores media in a `media/` subfolder within the zip, referenced by UUID-style media IDs in note fields.
 
 ### 9. Voice dropdown visibility is phase-dependent
 
@@ -385,7 +388,7 @@ Both `MiniCPMTextEngine.generate()` and `LlamaCppTextEngine.generate()` validate
 
 ### 11. `_current_cards` persists for export after Phase 2
 
-`_current_cards` is a module-level global in `app.py` that stores the full card data (including media paths) after Phase 2 completes. It is set by `generate_media_async()` before the final yield and read by `_handle_export_csv()`. Do not clear it between Phase 2 calls — it enables CSV export after generation.
+`_current_cards` is a module-level global in `app.py` that stores the full card data (including media paths) after Phase 2 completes. It is set by `generate_media_async()` before the final yield and read by `_handle_export_csv()` and `_handle_export_apkg()`. Do not clear it between Phase 2 calls — it enables both CSV and APKG export after generation.
 
 ### 12. Gradio Blocks context and return value
 
