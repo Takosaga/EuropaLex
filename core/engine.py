@@ -9,10 +9,9 @@ from pathlib import Path
 from typing import ClassVar
 
 import numpy as np
-import soundfile as sf
 import torch
 
-from core.types import AudioResult, CEFRLevel, EngineConfig, ImageResult, TextResult, ValidationError
+from core.types import CEFRLevel, EngineConfig, TextResult, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -394,192 +393,12 @@ class LlamaCppTextEngine:
             logger.info("LlamaCppTextEngine unloaded")
 
 
-class TTSEngine:
-    """Text-to-speech using the omnivoice Python package.
-
-    Lazy-loads the model on first synthesis call, unloads after completion.
-    Only one instance can be active at a time (enforced by EnginePool).
-    """
-
-    def __init__(self, device: str = "cuda"):
-        """Initialize the TTS engine.
-
-        Args:
-            device: 'cuda', 'mps', or 'cpu'.
-        """
-        self.device = device
-        self._model = None
-        self._loaded = False
-
-    def _load_model(self) -> None:
-        """Lazy-load the OmniVoice model from HF Hub (cached locally)."""
-        if self._loaded:
-            return
-
-        try:
-            from omnivoice import OmniVoice
-        except ImportError:
-            raise ImportError(
-                "omnivoice package not installed. Run: pip install omnivoice"
-            )
-
-        logger.info("Loading OmniVoice from HF Hub (cached in ~/.cache/huggingface/)")
-        self._model = OmniVoice.from_pretrained(
-            "k2-fsa/OmniVoice",
-            device_map=self.device,
-            dtype=torch.float16 if self.device != "cpu" else torch.float32,
-        )
-        self._loaded = True
-        logger.info("OmniVoice model loaded on %s", self.device)
-
-    def synthesize(
-        self,
-        texts: list[str],
-        output_dir: Path,
-        language: str | None = None,
-        instruct: str | None = None,
-    ) -> AudioResult:
-        """Generate audio for a batch of texts using voice design mode.
-
-        Uses OmniVoice in voice design mode with a consistent female voice.
-        Optionally accepts a target language for improved synthesis quality.
-
-        Args:
-            texts: List of text strings to convert to speech.
-            output_dir: Directory to save .wav files.
-            language: Target language name for TTS (e.g., "Latvian", "Spanish").
-                Improves synthesis quality when known. Defaults to None (auto-detect).
-            instruct: OmniVoice voice design string (e.g., "female, young adult").
-                Defaults to "female, young adult" when omitted.
-
-        Returns:
-            AudioResult with absolute paths to generated audio files.
-        """
-        self._load_model()
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        audio_paths = []
-        for i, text in enumerate(texts):
-            try:
-                audio_data = self._model.generate(
-                    text=text,
-                    instruct=instruct or "female, young adult",
-                    language=language,
-                )
-                if audio_data and len(audio_data) > 0:
-                    wav_path = output_dir / f"audio_{i}.wav"
-                    sf.write(str(wav_path), audio_data[0], 24000)
-                    audio_paths.append(str(wav_path.resolve()))
-                    logger.debug("Saved audio to %s", wav_path)
-                else:
-                    logger.warning("Empty audio output for text: %s", text[:50])
-                    audio_paths.append(None)
-            except Exception as e:
-                logger.error("TTS failed for text '%s': %s", text[:50], e)
-                audio_paths.append(None)
-
-        return AudioResult(audio_paths=list(audio_paths))
-
-    def unload(self) -> None:
-        """Unload the model and free GPU memory."""
-        if self._model is not None:
-            del self._model
-            self._model = None
-            self._loaded = False
-            try:
-                torch.cuda.empty_cache()
-            except Exception:
-                pass
-            logger.info("OmniVoice model unloaded")
+# TTSEngine has been extracted to core.audio_gen
+from core.audio_gen import TTSEngine  # noqa: F401
 
 
-class ImageGenEngine:
-    """Image generation using diffusers Flux2KleinPipeline.
-
-    Lazy-loads the pipeline on first generation call, unloads after completion.
-    Only one instance can be active at a time (enforced by EnginePool).
-    """
-
-    def __init__(self, device: str = "cuda"):
-        """Initialize the image engine.
-
-        Args:
-            device: 'cuda', 'mps', or 'cpu'.
-        """
-        self.device = device
-        self._pipeline = None
-        self._loaded = False
-
-    def _load_pipeline(self) -> None:
-        """Lazy-load the Flux2Klein pipeline from HF Hub (cached locally)."""
-        if self._loaded:
-            return
-
-        try:
-            from diffusers import Flux2KleinPipeline
-        except ImportError:
-            raise ImportError(
-                "diffusers package not installed. Run: pip install diffusers"
-            )
-
-        torch_dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
-        logger.info("Loading Flux2Klein from HF Hub (cached in ~/.cache/huggingface/)")
-        self._pipeline = Flux2KleinPipeline.from_pretrained(
-            "black-forest-labs/FLUX.2-klein-4B",
-            torch_dtype=torch_dtype,
-        )
-        self._pipeline.enable_model_cpu_offload()
-        self._loaded = True
-        logger.info("Flux2Klein pipeline loaded on %s", self.device)
-
-    def generate(self, prompts: list[str], output_dir: Path) -> ImageResult:
-        """Generate images for a batch of prompts.
-
-        Args:
-            prompts: List of text prompts for image generation.
-            output_dir: Directory to save .png files.
-
-        Returns:
-            ImageResult with absolute paths to generated image files.
-        """
-        self._load_pipeline()
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        image_paths = []
-        for i, prompt in enumerate(prompts):
-            try:
-                images = self._pipeline(
-                    prompt=prompt,
-                    num_inference_steps=10,
-                    guidance_scale=1.0,
-                    width=240,
-                    height=160,
-                )
-                if images.images and len(images.images) > 0:
-                    img_path = output_dir / f"image_{i}.png"
-                    images.images[0].save(str(img_path))
-                    image_paths.append(str(img_path.resolve()))
-                    logger.debug("Saved image to %s", img_path)
-                else:
-                    logger.warning("Empty image output for prompt: %s", prompt[:50])
-                    image_paths.append(None)
-            except Exception as e:
-                logger.error("Image generation failed for prompt '%s': %s", prompt[:50], e)
-                image_paths.append(None)
-
-        return ImageResult(image_paths=list(image_paths))
-
-    def unload(self) -> None:
-        """Unload the pipeline and free GPU memory."""
-        if self._pipeline is not None:
-            del self._pipeline
-            self._pipeline = None
-            self._loaded = False
-            try:
-                torch.cuda.empty_cache()
-            except Exception:
-                pass
-            logger.info("Flux2Klein pipeline unloaded")
+# ImageGenEngine has been extracted to core.image_gen
+from core.image_gen import ImageGenEngine  # noqa: F401
 
 
 class EnginePool:
