@@ -244,3 +244,157 @@ class TestPackageGeneration:
             names = zf.namelist()
             # Should only have collection.anki2 and media — no numbered files or .wav/.png
             assert len([n for n in names if n.endswith('.wav') or n.endswith('.png')]) == 0
+
+
+class TestMediaInjection:
+    """Tests for _inject_media function."""
+
+    def test_inject_audio_updates_manifest(self, tmp_path):
+        """Audio file is hashed and added to media manifest."""
+        model = _create_model()
+        # Create a real .wav file in temp dir
+        wav_dir = tmp_path / "audio"
+        wav_dir.mkdir()
+        wav_path = str(wav_dir / "test_A2_LV_0.wav")
+        Path(wav_path).write_bytes(b'\x00' * 100)  # dummy WAV content
+
+        notes = [_create_note(model, "Hola", "Hello", audio_path=wav_path)]
+        pkg_path = _create_package(notes, scenario="test", cefr_level="A2", target_language="Latvian")
+
+        # Inject media
+        cards_for_inject = [{"audio_path": wav_path, "image_path": None}]
+        _inject_media(pkg_path, cards_for_inject)
+
+        with zipfile.ZipFile(pkg_path, 'r') as zf:
+            manifest = json.loads(zf.read('media'))
+            # Manifest should have an entry with a 32-char hex hash key
+            assert len(manifest) == 1
+            hash_key = list(manifest.keys())[0]
+            assert len(hash_key) == 36  # 32 hex chars + ".wav"
+            assert hash_key.endswith(".wav")
+            assert manifest[hash_key] == "test_A2_LV_0.wav"
+
+    def test_inject_image_updates_manifest(self, tmp_path):
+        """Image file is hashed and added to media manifest."""
+        model = _create_model()
+        png_dir = tmp_path / "images"
+        png_dir.mkdir()
+        png_path = str(png_dir / "test_A2_LV_0.png")
+        Path(png_path).write_bytes(b'\x89PNG\r\n\x1a\n' + b'\x00' * 100)  # fake PNG header
+
+        notes = [_create_note(model, "Hola", "Hello", image_path=png_path)]
+        pkg_path = _create_package(notes, scenario="test", cefr_level="A2", target_language="Latvian")
+
+        cards_for_inject = [{"audio_path": None, "image_path": png_path}]
+        _inject_media(pkg_path, cards_for_inject)
+
+        with zipfile.ZipFile(pkg_path, 'r') as zf:
+            manifest = json.loads(zf.read('media'))
+            assert len(manifest) == 1
+            hash_key = list(manifest.keys())[0]
+            assert hash_key.endswith(".png")
+
+    def test_inject_media_file_in_zip(self, tmp_path):
+        """Injected media file exists in the zip under hashed name."""
+        model = _create_model()
+        wav_dir = tmp_path / "audio"
+        wav_dir.mkdir()
+        wav_path = str(wav_dir / "test_A2_LV_0.wav")
+        Path(wav_path).write_bytes(b'\x00' * 100)
+
+        notes = [_create_note(model, "Hola", "Hello", audio_path=wav_path)]
+        pkg_path = _create_package(notes, scenario="test", cefr_level="A2", target_language="Latvian")
+
+        cards_for_inject = [{"audio_path": wav_path, "image_path": None}]
+        _inject_media(pkg_path, cards_for_inject)
+
+        with zipfile.ZipFile(pkg_path, 'r') as zf:
+            names = zf.namelist()
+            # Should have the hashed .wav file
+            assert any(n.endswith('.wav') for n in names)
+
+    def test_inject_deduplicates_same_file(self, tmp_path):
+        """Same media file referenced by multiple cards is injected only once."""
+        model = _create_model()
+        wav_dir = tmp_path / "audio"
+        wav_dir.mkdir()
+        wav_path = str(wav_dir / "shared_A2_LV_0.wav")
+        Path(wav_path).write_bytes(b'\x00' * 100)
+
+        notes = [
+            _create_note(model, "A", "1", audio_path=wav_path),
+            _create_note(model, "B", "2", audio_path=wav_path),  # same file
+        ]
+        pkg_path = _create_package(notes, scenario="test", cefr_level="A2", target_language="Latvian")
+
+        cards_for_inject = [
+            {"audio_path": wav_path, "image_path": None},
+            {"audio_path": wav_path, "image_path": None},  # duplicate reference
+        ]
+        _inject_media(pkg_path, cards_for_inject)
+
+        with zipfile.ZipFile(pkg_path, 'r') as zf:
+            manifest = json.loads(zf.read('media'))
+            # Only one entry for the shared file
+            assert len(manifest) == 1
+
+    def test_inject_skips_missing_files(self, tmp_path):
+        """Injection skips files that don't exist on disk."""
+        model = _create_model()
+        notes = [_create_note(model, "Hola", "Hello")]
+        pkg_path = _create_package(notes, scenario="test", cefr_level="A2", target_language="Latvian")
+
+        cards_for_inject = [{"audio_path": "/nonexistent/path.wav", "image_path": None}]
+        _inject_media(pkg_path, cards_for_inject)
+
+        # Should not crash; manifest stays empty
+        with zipfile.ZipFile(pkg_path, 'r') as zf:
+            manifest = json.loads(zf.read('media'))
+            assert len(manifest) == 0
+
+    def test_inject_preserves_existing_files(self, tmp_path):
+        """Media injection doesn't corrupt the collection.anki2 database."""
+        model = _create_model()
+        notes = [_create_note(model, "Hola", "Hello")]
+        pkg_path = _create_package(notes, scenario="test", cefr_level="A2", target_language="Latvian")
+
+        # Record original database size and content hash
+        with zipfile.ZipFile(pkg_path, 'r') as zf:
+            original_db = zf.read('collection.anki2')
+
+        wav_dir = tmp_path / "audio"
+        wav_dir.mkdir()
+        wav_path = str(wav_dir / "test_A2_LV_0.wav")
+        Path(wav_path).write_bytes(b'\x00' * 100)
+
+        cards_for_inject = [{"audio_path": wav_path, "image_path": None}]
+        _inject_media(pkg_path, cards_for_inject)
+
+        with zipfile.ZipFile(pkg_path, 'r') as zf:
+            new_db = zf.read('collection.anki2')
+            assert new_db == original_db  # database unchanged
+
+    def test_hash_is_content_based(self, tmp_path):
+        """MD5 hash is computed from file content, not filename."""
+        model = _create_model()
+        wav_dir = tmp_path / "audio"
+        wav_dir.mkdir()
+        # Two files with different names but identical content
+        path1 = str(wav_dir / "name_a.wav")
+        path2 = str(wav_dir / "name_b.wav")
+        Path(path1).write_bytes(b'\x00' * 100)
+        Path(path2).write_bytes(b'\x00' * 100)
+
+        notes = [_create_note(model, "Hola", "Hello", audio_path=path1)]
+        pkg_path = _create_package(notes, scenario="test", cefr_level="A2", target_language="Latvian")
+
+        cards_for_inject = [
+            {"audio_path": path1, "image_path": None},
+            {"audio_path": path2, "image_path": None},  # same content, different name
+        ]
+        _inject_media(pkg_path, cards_for_inject)
+
+        with zipfile.ZipFile(pkg_path, 'r') as zf:
+            manifest = json.loads(zf.read('media'))
+            # Only one entry because content is identical (dedup by hash)
+            assert len(manifest) == 1
