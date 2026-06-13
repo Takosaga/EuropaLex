@@ -129,6 +129,8 @@ EuropaLex generates flashcards in two phases: English text first (Phase 1), then
 7. If Images is toggled ON, images are generated via `ImageGenEngine` (diffusers Flux2KleinPipeline)
 8. Cards update: translation moves to the front, English stays on the back; image and audio controls appear alongside translations
 
+> **Regenerating Cards:** After Phase 2 completes, changing any parameter (target language, audio/image toggles, or voice) automatically restores the **Generate Cards** button so you can regenerate with new settings without re-running Phase 1.
+
 ### Export
 
 1. Once Phase 2 completes, click **Export CSV** to download a `.zip` file containing the CSV and all media files
