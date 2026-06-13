@@ -465,13 +465,30 @@ def _handle_export_csv(
         return None
 
 
-def _handle_export_apkg_stub():
-    """Stub handler: APKG export not yet implemented.
+def _handle_export_apkg(
+    scenario: str,
+    cefr_level: str,
+    target_language: str,
+) -> str | None:
+    """Export current cards as an Anki package (.apkg).
 
-    Yields (progress_html,) tuple for Gradio generator consumption.
+    Returns the absolute path to the generated .apkg file for Gradio DownloadButton.
+    Returns None if no cards to export or export failed.
     """
-    from frontend.ui.cards import generate_progress_html
-    yield generate_progress_html(0, "APKG export coming soon.")
+    if not _current_cards:
+        logger.warning("APKG export: no cards to export")
+        return None
+
+    try:
+        from core.types import CEFRLevel
+        from export.apkg_generator import generate_apkg_package
+
+        cefr = CEFRLevel(cefr_level)
+        apkg_path = generate_apkg_package(_current_cards, scenario, cefr_level, target_language)
+        return apkg_path
+    except Exception as e:
+        logger.error("APKG export failed: %s", e, exc_info=True)
+        return None
 
 
 if __name__ == "__main__":
