@@ -212,10 +212,10 @@ Phase 2 translation orchestration layer. Provides `generate_phase2()` as a gener
 
 ### Smoke Tests
 
-Run `scripts/smoke_test.py` before committing. It performs a quick sanity check: imports all modules, validates dataclasses, and checks that the Gradio app can be constructed without errors.
+Run `tests/smoke_test.py` before committing. It performs a quick sanity check: imports all modules, validates dataclasses, and checks that the Gradio app can be constructed without errors.
 
 ```bash
-python scripts/smoke_test.py
+python tests/smoke_test.py
 ```
 
 Expected output: clean exit (no traceback). If it fails, something is broken at the module level.
@@ -228,11 +228,11 @@ The frontend can render cards from mock data (no model inference needed). When t
 
 ### Inline Tests for Engine Retry Logic
 
-For engine classes with retry loops, add inline tests that mock the LLM and verify count validation. See `scripts/test_translation_retry.py` as an example — it tests `LlamaCppTextEngine.generate()` retry logic (exact count, short output, exhausted retries, empty output) without requiring a running model.
+For engine classes with retry loops, add inline tests that mock the LLM and verify count validation. See `tests/translation_retry_test.py` as an example — it tests `LlamaCppTextEngine.generate()` retry logic (exact count, short output, exhausted retries, empty output) without requiring a running model.
 
 ### Inline Tests
 
-For new modules with non-trivial logic, add a test script in `scripts/` guarded by `if __name__ == "__main__":`. See `scripts/test_count_enforcement.py` as an example — it tests `TextResult.validate_and_parse()` (thinking-tag stripping, line-count enforcement) and retry-prompt logic without requiring model inference.
+For new modules with non-trivial logic, add a test script in `tests/` guarded by `if __name__ == "__main__":`. See `tests/count_enforcement_test.py` as an example — it tests `TextResult.validate_and_parse()` (thinking-tag stripping, line-count enforcement) and retry-prompt logic without requiring model inference.
 
 ### No Unit Test Framework Required (Yet)
 
@@ -247,7 +247,7 @@ Use this checklist when extending EuropaLex:
 3. **Implement core logic** — In `core/` or the appropriate module. Follow the protocol pattern from `engine.py`.
 4. **Wire up the UI** — Add widgets in `frontend/ui/widgets.py`, renderers in `frontend/ui/cards.py`. Update `app.py` click handlers last.
 5. **Update CSS if needed** — New visual elements go in `frontend/css/custom.css`. Keep inline styles only for card-level dynamic properties (rotation, conditional display).
-6. **Test with smoke test** — Run `python scripts/smoke_test.py`.
+6. **Test with smoke test** — Run `python tests/smoke_test.py`.
 7. **Commit** — One logical change per commit. Message format: `type: brief description` (e.g., `feat: add Japanese language support`, `fix: card rotation overflow`).
 
 ## Git Workflow
@@ -270,7 +270,7 @@ Use [Conventional Commits](https://www.conventionalcommits.org/) prefix:
 
 ### Before Merging
 
-1. Run `python scripts/smoke_test.py` — must pass
+1. Run `python tests/smoke_test.py` — must pass
 2. Verify the Gradio app starts: `python app.py` — must launch without errors on port 7860
 3. Check that all new code follows the conventions in this document
 
