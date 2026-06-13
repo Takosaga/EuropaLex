@@ -80,10 +80,11 @@ def _enable_phase2() -> tuple:
 
     Both Audio and Images toggles default to ON after Phase 1. Voice dropdown becomes interactive — it becomes visible when audio toggle is turned ON (via audio_toggle.change).
     Explicitly sets value=True to prevent Gradio from resetting checkbox state on re-render.
-    Export button remains VISIBLE but DISABLED until Phase 2 completes (when _current_cards is populated).
+    Export buttons remain VISIBLE but DISABLED until Phase 2 completes (when _current_cards is populated).
 
     Returns:
-        Tuple of (images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, export_btn, phase_css) updates.
+        Tuple of (images_toggle, audio_toggle, generate_cards_btn, voice_dropdown,
+                  export_csv_btn, export_apkg_btn, export_file, export_apkg_file, phase_css) updates.
     """
     import gradio as gr
     return (
@@ -91,7 +92,10 @@ def _enable_phase2() -> tuple:
         gr.Checkbox(interactive=True, value=True),     # audio_toggle
         gr.Button(interactive=True),                    # generate_cards_btn
         gr.Dropdown(interactive=True),                  # voice_dropdown
-        gr.Button(visible=True, interactive=False),     # export_btn (disabled until Phase 2)
+        gr.Button(visible=True, interactive=False),     # export_csv_btn (disabled until Phase 2)
+        gr.Button(visible=True, interactive=False),     # export_apkg_btn (disabled until Phase 2)
+        gr.File(value=None, visible=False),             # export_file
+        gr.File(value=None, visible=False),             # export_apkg_file
         "",                                              # phase_css
     )
 
@@ -105,11 +109,11 @@ def _reset_to_idle() -> tuple:
     Re-applies disabled CSS to phase-2 controls.
     Keeps voice dropdown visible but disabled (it becomes interactive when audio is toggled ON after Phase 1).
     Explicitly sets value=False to prevent Gradio from resetting checkbox state on re-render.
-    Keeps export button visible but disabled until Phase 2 completes.
+    Keeps export buttons visible but disabled until Phase 2 completes.
 
     Returns:
         Tuple of (generate_text_btn, images_toggle, audio_toggle, generate_cards_btn,
-                  voice_dropdown, phase_css, export_btn, export_file) updates.
+                  voice_dropdown, phase_css, export_csv_btn, export_apkg_btn, export_file, export_apkg_file) updates.
     """
     import gradio as gr
     return (
@@ -119,8 +123,10 @@ def _reset_to_idle() -> tuple:
         gr.Button(visible=True, interactive=False, variant="secondary"),  # generate_cards_btn
         gr.Dropdown(visible=True, interactive=False),      # voice_dropdown
         """<style id="phase-css">#toggle-images, #toggle-audio { opacity: 0.45; pointer-events: none; cursor: not-allowed; } #language-dropdown, #voice-dropdown { opacity: 0.45; pointer-events: none; cursor: not-allowed; } #generate-cards-btn { opacity: 0.45; pointer-events: none; cursor: not-allowed; }</style>""",  # phase_css
-        gr.Button(visible=True, interactive=False),       # export_btn (always visible, disabled until Phase 2)
+        gr.Button(visible=True, interactive=False),       # export_csv_btn (always visible, disabled until Phase 2)
+        gr.Button(visible=True, interactive=False),       # export_apkg_btn (always visible, disabled until Phase 2)
         gr.File(value=None, visible=False),                 # export_file
+        gr.File(value=None, visible=False),                 # export_apkg_file
     )
 
 
@@ -149,15 +155,16 @@ def _restore_generate_cards_button() -> tuple:
     """After a parameter change, restore the Generate Cards button so user can regenerate media.
 
     Called as a chained .then() handler after primary event handlers.
-    Unhides the button and makes it interactive. Export button stays disabled.
+    Unhides the button and makes it interactive. Export buttons stay disabled.
 
     Returns:
-        Tuple of (generate_cards_btn, export_btn) Gradio updates.
+        Tuple of (generate_cards_btn, export_csv_btn, export_apkg_btn) Gradio updates.
     """
     import gradio as gr
     return (
         gr.Button(visible=True, interactive=True),   # generate_cards_btn
-        gr.Button(visible=True, interactive=False),  # export_btn (disabled until Phase 2)
+        gr.Button(visible=True, interactive=False),  # export_csv_btn (disabled until Phase 2)
+        gr.Button(visible=True, interactive=False),  # export_apkg_btn (disabled until Phase 2)
     )
 
 
@@ -169,13 +176,14 @@ def _restore_generate_cards_button_only() -> tuple:
     Does NOT restore the Generate Text button (only appears on scenario/CEFR/batch reset).
 
     Returns:
-        Tuple of (generate_text_btn, generate_cards_btn, export_btn) Gradio updates.
+        Tuple of (generate_text_btn, generate_cards_btn, export_csv_btn, export_apkg_btn) Gradio updates.
     """
     import gradio as gr
     return (
         gr.Button(visible=False),                    # generate_text_btn (stays hidden)
         gr.Button(visible=True, interactive=True),   # generate_cards_btn (restore)
-        gr.Button(visible=True, interactive=False),  # export_btn (disabled until Phase 2)
+        gr.Button(visible=True, interactive=False),  # export_csv_btn (disabled until Phase 2)
+        gr.Button(visible=True, interactive=False),  # export_apkg_btn (disabled until Phase 2)
     )
 
 
@@ -269,17 +277,27 @@ def build_ui() -> "gr.Blocks":
 
                 progress_html = gr.HTML(label="Progress")
 
-                # Export area: regular button to trigger export + File component for download
+                # Export area: CSV button + File download, APKG button + File download
                 with gr.Row():
-                    export_btn = gr.Button(
+                    export_csv_btn = gr.Button(
                         "📥 Export CSV + Media",
                         variant="primary",
                         visible=True,
                         interactive=False,
                         elem_id="export-btn",
                     )
+                    export_apkg_btn = gr.Button(
+                        "📥 Export Anki Cards",
+                        variant="primary",
+                        visible=True,
+                        interactive=False,
+                        elem_id="export-apkg-btn",
+                    )
                 export_file = gr.File(
-                    label="Download", file_types=[".zip"], visible=False
+                    label="Download CSV", file_types=[".zip"], visible=False
+                )
+                export_apkg_file = gr.File(
+                    label="Download Anki Cards", file_types=[".apkg"], visible=False
                 )
 
             gr.Column(scale=1)
@@ -325,7 +343,7 @@ def build_ui() -> "gr.Blocks":
             return (
                 gr.Button(visible=False),        # generate_text_btn
                 gr.Button(visible=False),       # generate_cards_btn
-                gr.Button(visible=True, interactive=True),  # export_btn (enable)
+                gr.Button(visible=True, interactive=True),  # export_csv_btn (enable)
                 gr.File(value=None, visible=False),  # export_file (cleared)
             )
 
@@ -336,7 +354,7 @@ def build_ui() -> "gr.Blocks":
         ).then(
             fn=_enable_phase2,
             inputs=[],
-            outputs=[images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, export_btn, phase_css],
+            outputs=[images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, export_csv_btn, phase_css],
         )
 
         # When audio toggle changes: show/hide voice dropdown and manage disabled CSS
@@ -356,7 +374,7 @@ def build_ui() -> "gr.Blocks":
         ).then(
             fn=_restore_generate_cards_button,
             inputs=[],
-            outputs=[generate_cards_btn, export_btn],
+            outputs=[generate_cards_btn, export_csv_btn],
         )
 
         generate_cards_btn.click(
@@ -366,32 +384,32 @@ def build_ui() -> "gr.Blocks":
         ).then(
             fn=_on_media_generation_complete,
             inputs=[],
-            outputs=[generate_text_btn, generate_cards_btn, export_btn, export_file],
+            outputs=[generate_text_btn, generate_cards_btn, export_csv_btn, export_file],
         )
 
         # Reset toggles and both buttons when user changes any input parameter
-        scenario_input.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_btn, export_file])
-        cefr_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_btn, export_file])
-        batch_slider.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_btn, export_file])
+        scenario_input.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_csv_btn, export_file])
+        cefr_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_csv_btn, export_file])
+        batch_slider.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_csv_btn, export_file])
         # Language change — only restore Generate Cards button (toggles stay interactive)
         language_dropdown.change(
             fn=_restore_generate_cards_button_only,
             inputs=[],
-            outputs=[generate_text_btn, generate_cards_btn, export_btn],
+            outputs=[generate_text_btn, generate_cards_btn, export_csv_btn],
         )
 
         # Image toggle change — restore Generate Cards button so user can regenerate with/without images
         images_toggle.change(
             fn=lambda: (gr.Button(visible=True, interactive=True), gr.Button(visible=True, interactive=False)),
             inputs=[],
-            outputs=[generate_cards_btn, export_btn],
+            outputs=[generate_cards_btn, export_csv_btn],
         )
 
         # Voice dropdown change — restore Generate Cards button so user can regenerate with different voice
         voice_dropdown.change(
-            fn=lambda: (gr.Button(visible=True, interactive=True), gr.Button(visible=True, interactive=False)),
+            fn=lambda: (gr.Button(visible=True, interactive=True), gr.Button(visible=True, interactive=False), gr.Button(visible=True, interactive=False)),
             inputs=[],
-            outputs=[generate_cards_btn, export_btn],
+            outputs=[generate_cards_btn, export_csv_btn, export_apkg_btn],
         )
 
         # ─── Export Event Wiring ──────────────────────────────────────
@@ -420,10 +438,41 @@ def build_ui() -> "gr.Blocks":
                 return generate_progress_html(0, f"\u26a0\ufe0f Export failed: {e}"), None, gr.File(visible=False)
 
         # Export button click — generates zip and shows it in gr.File for download
-        export_btn.click(
+        export_csv_btn.click(
             fn=_handle_export_csv_event,
             inputs=[scenario_input, cefr_dropdown, language_dropdown],
             outputs=[progress_html, export_file, export_file],
+        )
+
+        # ─── APKG Export Event Wiring ───────────────────────────────
+
+        def _handle_export_apkg_event(scenario: str, cefr_level: str, target_language: str):
+            """Export current cards as Anki package (.apkg).
+
+            Sets the generated .apkg file path as the value of export_apkg_file component,
+            which Gradio renders as a downloadable file link.
+            """
+            from frontend.ui.cards import generate_progress_html
+
+            if not _app_module._current_cards:
+                return generate_progress_html(0, "\u26a0\ufe0f No cards to export."), None, gr.File(visible=False)
+
+            try:
+                apkg_path = _app_module._handle_export_apkg(scenario, cefr_level, target_language)
+                if apkg_path is None:
+                    return generate_progress_html(0, "\u26a0\ufe0f Export failed."), None, gr.File(visible=False)
+                # Show the file for download — gr.File component renders it as a clickable link
+                return generate_progress_html(100, "Export complete! Click the file below to download."), apkg_path, gr.File(visible=True)
+            except Exception as e:
+                logger = logging.getLogger(__name__)
+                logger.error("APKG export failed: %s", e, exc_info=True)
+                return generate_progress_html(0, f"\u26a0\ufe0f Export failed: {e}"), None, gr.File(visible=False)
+
+        # APKG Export button click — generates .apkg and shows it in gr.File for download
+        export_apkg_btn.click(
+            fn=_handle_export_apkg_event,
+            inputs=[scenario_input, cefr_dropdown, language_dropdown],
+            outputs=[progress_html, export_apkg_file, export_apkg_file],
         )
 
     return demo
