@@ -16,9 +16,6 @@ class CEFRLevel(str, Enum):
     See https://www.coe.int/en/web/common-european-framework-reference-languages/
     """
 
-    A0 = "A0"
-    """Pre-Entry — No language knowledge yet."""
-
     A1 = "A1"
     """Beginner — Very simple sentences (3–6 words), present tense only, basic vocabulary."""
 
@@ -42,7 +39,6 @@ class CEFRLevel(str, Enum):
     def label(self) -> str:
         """Return the short human-readable label (e.g. 'Beginner' for A1)."""
         labels = {
-            CEFRLevel.A0: "Pre-Entry",
             CEFRLevel.A1: "Beginner",
             CEFRLevel.A2: "Elementary",
             CEFRLevel.B1: "Intermediate",
@@ -60,7 +56,6 @@ class CEFRLevel(str, Enum):
         Topics should be provided separately via a free-form description.
         """
         descs = {
-            CEFRLevel.A0: "Pre-Entry — No language knowledge yet.",
             CEFRLevel.A1: (
                 "Beginner — Very simple sentences (3–6 words), present tense only, "
                 "basic vocabulary."
