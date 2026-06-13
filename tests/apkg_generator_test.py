@@ -353,12 +353,12 @@ class TestMediaInjection:
             assert len(manifest) == 0
 
     def test_inject_preserves_existing_files(self, tmp_path):
-        """Media injection doesn't corrupt the collection.anki2 database."""
+        """Media injection fixes conf.curModel but preserves all other DB data."""
         model = _create_model()
         notes = [_create_note(model, "Hola", "Hello")]
         pkg_path = _create_package(notes, scenario="test", cefr_level="A2", target_language="Latvian")
 
-        # Record original database size and content hash
+        # Record original DB state
         with zipfile.ZipFile(pkg_path, 'r') as zf:
             original_db = zf.read('collection.anki2')
 
@@ -372,7 +372,20 @@ class TestMediaInjection:
 
         with zipfile.ZipFile(pkg_path, 'r') as zf:
             new_db = zf.read('collection.anki2')
-            assert new_db == original_db  # database unchanged
+
+        # DB should not be identical (curModel is fixed), but structure must be intact
+        assert new_db != original_db  # conf.curModel was updated
+
+        # Verify the fix: curModel should match MODEL_ID
+        import sqlite3, tempfile
+        tmp_db = tmp_path / "temp.db"
+        tmp_db.write_bytes(new_db)
+        conn = sqlite3.connect(str(tmp_db))
+        cur = conn.cursor()
+        cur.execute('SELECT conf FROM col')
+        conf = json.loads(cur.fetchone()[0])
+        assert conf['curModel'] == str(MODEL_ID)
+        conn.close()
 
     def test_hash_is_content_based(self, tmp_path):
         """MD5 hash is computed from file content, not filename."""
@@ -398,6 +411,61 @@ class TestMediaInjection:
             manifest = json.loads(zf.read('media'))
             # Only one entry because content is identical (dedup by hash)
             assert len(manifest) == 1
+
+    def test_inject_fixes_conf_curmodel(self, tmp_path):
+        """conf.curModel is updated to MODEL_ID during media injection."""
+        model = _create_model()
+        notes = [_create_note(model, "Hola", "Hello")]
+        pkg_path = _create_package(notes, scenario="test", cefr_level="A2", target_language="Latvian")
+
+        wav_dir = tmp_path / "audio"
+        wav_dir.mkdir()
+        wav_path = str(wav_dir / "test_A2_LV_0.wav")
+        Path(wav_path).write_bytes(b'\x00' * 100)
+
+        cards_for_inject = [{"audio_path": wav_path, "image_path": None}]
+        _inject_media(pkg_path, cards_for_inject)
+
+        with zipfile.ZipFile(pkg_path, 'r') as zf:
+            db_bytes = zf.read('collection.anki2')
+        tmp_db = tmp_path / "temp.db"
+        tmp_db.write_bytes(db_bytes)
+        import sqlite3
+        conn = sqlite3.connect(str(tmp_db))
+        cur = conn.cursor()
+        cur.execute('SELECT conf FROM col')
+        conf = json.loads(cur.fetchone()[0])
+        assert conf['curModel'] == str(MODEL_ID), \
+            f"curModel should be {MODEL_ID}, got {conf['curModel']}"
+
+        # Verify curModel points to an existing model in the models dict
+        cur.execute('SELECT models FROM col')
+        models = json.loads(cur.fetchone()[0])
+        assert conf['curModel'] in models, \
+            f"curModel {conf['curModel']} not found in models keys: {list(models.keys())}"
+        conn.close()
+
+    def test_inject_fixes_curmodel_without_media(self, tmp_path):
+        """conf.curModel is fixed even when no media files are injected."""
+        model = _create_model()
+        notes = [_create_note(model, "Hola", "Hello")]
+        pkg_path = _create_package(notes, scenario="test", cefr_level="A2", target_language="Latvian")
+
+        # No media files to inject
+        cards_for_inject = [{"audio_path": None, "image_path": None}]
+        _inject_media(pkg_path, cards_for_inject)
+
+        with zipfile.ZipFile(pkg_path, 'r') as zf:
+            db_bytes = zf.read('collection.anki2')
+        tmp_db = tmp_path / "temp.db"
+        tmp_db.write_bytes(db_bytes)
+        import sqlite3
+        conn = sqlite3.connect(str(tmp_db))
+        cur = conn.cursor()
+        cur.execute('SELECT conf FROM col')
+        conf = json.loads(cur.fetchone()[0])
+        assert conf['curModel'] == str(MODEL_ID)
+        conn.close()
 
 
 class TestGenerateApkgPackage:
