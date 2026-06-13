@@ -150,3 +150,37 @@ def test_enable_language_dropdown_on_audio_false(_mock_gradio):
     assert isinstance(result[1], str)
     assert len(result[1]) > 0
     assert "#voice-dropdown" in result[1]
+
+
+def test_restore_generate_cards_button_returns_tuple(_mock_gradio):
+    """_restore_generate_cards_button() returns tuple of (Button, Button)."""
+    from frontend.ui.widgets import _restore_generate_cards_button
+
+    result = _restore_generate_cards_button()
+    assert isinstance(result, tuple)
+    assert len(result) == 2
+
+
+def test_restore_generate_cards_button_makes_button_visible_interactive(_mock_gradio):
+    """Generate Cards button becomes visible and interactive."""
+    from frontend.ui.widgets import _restore_generate_cards_button
+
+    _restore_generate_cards_button()
+    # gr.Button was called twice: first for generate_cards_btn, then for export_btn
+    calls = _mock_gradio.Button.call_args_list
+    assert len(calls) == 2
+    first_call_kwargs = calls[0].kwargs if calls[0].kwargs else calls[0][1]
+    assert first_call_kwargs.get("visible") is True
+    assert first_call_kwargs.get("interactive") is True
+
+
+def test_restore_generate_cards_button_export_stays_disabled(_mock_gradio):
+    """Export button stays visible but disabled."""
+    from frontend.ui.widgets import _restore_generate_cards_button
+
+    _restore_generate_cards_button()
+    calls = _mock_gradio.Button.call_args_list
+    assert len(calls) == 2
+    second_call_kwargs = calls[1].kwargs if calls[1].kwargs else calls[1][1]
+    assert second_call_kwargs.get("visible") is True
+    assert second_call_kwargs.get("interactive") is False

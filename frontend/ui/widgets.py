@@ -145,6 +145,22 @@ def _enable_language_dropdown_on_audio(is_checked: bool) -> tuple:
         return gr.Dropdown(interactive=False), """<style id="phase-css">#voice-dropdown { opacity: 0.45; pointer-events: none; cursor: not-allowed; }</style>"""
 
 
+def _restore_generate_cards_button() -> tuple:
+    """After a parameter change, restore the Generate Cards button so user can regenerate media.
+
+    Called as a chained .then() handler after primary event handlers.
+    Unhides the button and makes it interactive. Export button stays disabled.
+
+    Returns:
+        Tuple of (generate_cards_btn, export_btn) Gradio updates.
+    """
+    import gradio as gr
+    return (
+        gr.Button(visible=True, interactive=True),   # generate_cards_btn
+        gr.Button(visible=True, interactive=False),  # export_btn (disabled until Phase 2)
+    )
+
+
 # ─── UI Layout Builder ───────────────────────────────────────────
 
 def build_ui() -> "gr.Blocks":
@@ -319,6 +335,10 @@ def build_ui() -> "gr.Blocks":
             fn=_on_audio_toggle_change,
             inputs=[audio_toggle],
             outputs=[voice_dropdown, phase_css],
+        ).then(
+            fn=_restore_generate_cards_button,
+            inputs=[],
+            outputs=[generate_cards_btn, export_btn],
         )
 
         generate_cards_btn.click(
@@ -335,7 +355,30 @@ def build_ui() -> "gr.Blocks":
         scenario_input.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_btn, export_file])
         cefr_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_btn, export_file])
         batch_slider.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_btn, export_file])
-        # Language change does NOT reset — user can switch languages freely after Phase 1
+        # Language change — reset toggles but restore Generate Cards button for regeneration
+        language_dropdown.change(
+            fn=_reset_to_idle,
+            inputs=[],
+            outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css, export_btn, export_file],
+        ).then(
+            fn=_restore_generate_cards_button,
+            inputs=[],
+            outputs=[generate_cards_btn, export_btn],
+        )
+
+        # Image toggle change — restore Generate Cards button so user can regenerate with/without images
+        images_toggle.change(
+            fn=lambda: (gr.Button(visible=True, interactive=True), gr.Button(visible=True, interactive=False)),
+            inputs=[],
+            outputs=[generate_cards_btn, export_btn],
+        )
+
+        # Voice dropdown change — restore Generate Cards button so user can regenerate with different voice
+        voice_dropdown.change(
+            fn=lambda: (gr.Button(visible=True, interactive=True), gr.Button(visible=True, interactive=False)),
+            inputs=[],
+            outputs=[generate_cards_btn, export_btn],
+        )
 
         # ─── Export Event Wiring ──────────────────────────────────────
 
