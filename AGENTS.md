@@ -232,33 +232,44 @@ Phase 2 translation orchestration layer. Provides `generate_phase2()` as a gener
 
 ## Testing Expectations
 
-### Smoke Tests
+### Pytest Test Suite
 
-Run `tests/smoke_test.py` before committing. It performs a quick sanity check: imports all modules, validates dataclasses, and checks that the Gradio app can be constructed without errors.
+All tests use pytest. Run the full suite before committing:
 
 ```bash
-python tests/smoke_test.py
+uv run pytest tests/ -v
 ```
 
-Expected output: clean exit (no traceback). If it fails, something is broken at the module level.
+**Test file naming convention:** `*_test.py` — one file per source module, flat structure in `tests/`:
 
-### Mock Data
+| Test File | Covers |
+|---|---|
+| `conftest.py` | Shared fixtures (mock data, paths, temp dirs) |
+| `smoke_test.py` | Import validation + Pydantic model construction |
+| `cards_test.py` | Card HTML rendering functions |
+| `widgets_test.py` | Widget creation and UI state helpers |
+| `app_test.py` | App async generators and helper functions |
+| `audio_gen_test.py` | TTSEngine (TTS audio generation) |
+| `image_gen_test.py` | ImageGenEngine (image generation) |
+| `engine_test.py` | MiniCPMTextEngine, LlamaCppTextEngine, EnginePool |
+| `pipeline_test.py` | Phase 2 orchestration |
+| `text_gen_test.py` | Sentence extraction + text generation |
 
-The frontend can render cards from mock data (no model inference needed). When testing UI changes:
-- Use `frontend/ui/cards.py:render_card_html()` directly with a dict like `{"text": "Hello", "translation": "Sveiki"}`
-- The card renderer handles missing fields gracefully — `translation` defaults to empty string, `audio_path`/`image_path` are ignored in HTML rendering.
+### Writing Tests
 
-### Inline Tests for Engine Retry Logic
+- Use fixtures from `tests/conftest.py` for mock data and paths.
+- Mock all GPU/model code via `unittest.mock.patch` — no real inference needed.
+- Use assertions (`assert`, `pytest.raises`) instead of print statements.
+- Generator functions consumed via `list(handler(...))` to capture all yields.
+- Real `.wav` and `.png` files from `tests/test_outputs/` serve as file-existence fixtures.
 
-For engine classes with retry loops, add inline tests that mock the LLM and verify count validation. See `tests/translation_retry_test.py` as an example — it tests `LlamaCppTextEngine.generate()` retry logic (exact count, short output, exhausted retries, empty output) without requiring a running model.
+### Smoke Tests
 
-### Inline Tests
+Run `uv run pytest tests/smoke_test.py -v` for a quick sanity check: imports all modules, validates Pydantic models, and checks that the Gradio app can be constructed without errors.
 
-For new modules with non-trivial logic, add a test script in `tests/` guarded by `if __name__ == "__main__":`. See `tests/count_enforcement_test.py` as an example — it tests `TextResult.validate_and_parse()` (thinking-tag stripping, line-count enforcement) and retry-prompt logic without requiring model inference.
+### Inline Tests (Legacy)
 
-### No Unit Test Framework Required (Yet)
-
-The project currently uses smoke tests and inline tests. If you add a new module with non-trivial logic (>30 lines of business logic), consider adding inline assertions or a simple test function at the bottom of the file guarded by `if __name__ == "__main__":`.
+The old `if __name__ == "__main__":` inline test pattern is deprecated. All tests should be in `*_test.py` files under `tests/`. Do not add new inline tests.
 
 ## Adding New Features
 
@@ -269,7 +280,7 @@ Use this checklist when extending EuropaLex:
 3. **Implement core logic** — In `core/` or the appropriate module. Follow the protocol pattern from `engine.py`.
 4. **Wire up the UI** — Add widgets in `frontend/ui/widgets.py`, renderers in `frontend/ui/cards.py`. Update `app.py` click handlers last.
 5. **Update CSS if needed** — New visual elements go in `frontend/css/custom.css`. Keep inline styles only for card-level dynamic properties (rotation, conditional display).
-6. **Test with smoke test** — Run `python tests/smoke_test.py`.
+6. **Test** — Run `uv run pytest tests/smoke_test.py -v` for a quick sanity check.
 7. **Commit** — One logical change per commit. Message format: `type: brief description` (e.g., `feat: add Japanese language support`, `fix: card rotation overflow`).
 
 ## Git Workflow
@@ -292,7 +303,7 @@ Use [Conventional Commits](https://www.conventionalcommits.org/) prefix:
 
 ### Before Merging
 
-1. Run `python tests/smoke_test.py` — must pass
+1. Run `uv run pytest tests/ -v` — must pass
 2. Verify the Gradio app starts: `python app.py` — must launch without errors on port 7860
 3. Check that all new code follows the conventions in this document
 
