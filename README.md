@@ -93,10 +93,11 @@ uv run python -m models.download_models --output-dir ./my-models
 
 ### Anki Integration
 
-**CSV export:** Click **Export CSV** after Phase 2 completes. The app creates a `.zip` archive containing:
+**CSV export:** Click **Download CSV + Media** after Phase 2 completes. The app creates a `.zip` archive containing:
 - `cards.csv` — columns: scenario, cefr_level, target_language, english_text, translated_text, audio_filename, image_filename
-- Media files in `audio/` and `images/` subfolders
+- Media files in a flat folder alongside the CSV (no subfolders)
 - Folder naming: `{scenario_slug}_{CEFR}_{LANG_ABBREV}` (e.g., `ordering_coffee_A2_LV`)
+- Media file naming: `{scenario_slug}_{CEFR}_{LANG_ABBREV}_{card_index}.{ext}` (e.g., `ordering_coffee_A2_LV_0.wav`, `ordering_coffee_A2_LV_1.png`)
 
 **APKG export:** Click **Export APKG** for a stub handler (coming soon).
 
