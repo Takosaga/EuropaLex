@@ -358,19 +358,23 @@ _phase1_texts = []
 
 Both `_enable_phase2()` and `_reset_to_idle()` return tuples that map to Gradio output component order. If you add new phase-dependent controls (export buttons, file download components), include them in both functions' return tuples AND in all `.then()` / `.change()` calls that reference these functions. Missing an output causes `ValueError: didn't return enough output values`.
 
-### 8. Voice dropdown visibility is phase-dependent
+### 8. Export media file naming convention
+
+Media files exported via `csv_export.py` follow the pattern `{scenario_slug}_{CEFR}_{LANG_ABBREV}_{card_index}.{ext}` (e.g., `ordering_coffee_A2_LV_0.wav`). Files are placed in a flat folder alongside `cards.csv` — no `audio/` or `images/` subfolders. Language abbreviations use ISO 639-1 codes without periods (LV, ES, FR, DE, PL, IT, PT, FI). CSV `audio_filename` and `image_filename` columns contain just the filename string (not a path).
+
+### 9. Voice dropdown visibility is phase-dependent
 
 The voice dropdown starts hidden (`visible = False`) and only becomes visible when the Audio toggle is ON (via `_enable_language_dropdown_on_audio`). It must be included in `_reset_to_idle()` outputs alongside toggles and buttons, and its `elem_id` must be targeted by disabled CSS. Do not assume it's always visible.
 
-### 9. LLM output may not match expected count
+### 10. LLM output may not match expected count
 
 Both `MiniCPMTextEngine.generate()` and `LlamaCppTextEngine.generate()` validate output count against `batch_size` and retry automatically (max 3 attempts). Do **not** slice output with `[:batch_size]` as a band-aid — the engines already handle this via retry loops. If you bypass an engine and call an LLM directly, you must implement the same validation logic.
 
-### 10. `_current_cards` persists for export after Phase 2
+### 11. `_current_cards` persists for export after Phase 2
 
 `_current_cards` is a module-level global in `app.py` that stores the full card data (including media paths) after Phase 2 completes. It is set by `generate_media_async()` before the final yield and read by `_handle_export_csv()`. Do not clear it between Phase 2 calls — it enables CSV export after generation.
 
-### 11. Gradio Blocks context and return value
+### 12. Gradio Blocks context and return value
 
 When building UI in `frontend/ui/widgets.py:build_ui()`, all widget creation and event wiring **must** be wrapped in `with gr.Blocks() as demo:` — Gradio requires all widgets and their event handlers to be inside a Blocks context. The function must **return `demo`** (the context variable), not create a fresh empty `gr.Blocks()` instance. Creating widgets inside an implicit context but returning a brand new empty `Blocks` object causes Gradio's exit handler to fail when reconciling widget state.
 
