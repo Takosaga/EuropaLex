@@ -154,6 +154,28 @@ Use `frontend/ui/cards.py:generate_progress_html(percent, phase_label)`. The fun
 
 Return empty string (`""`) when `percent <= 0` — Gradio will hide the element.
 
+### Generator Event Handlers
+
+All Gradio event handlers that produce multiple outputs (progress bar + card gallery) must be **generator functions** that yield tuples matching the output order:
+
+```python
+def my_handler(...):
+    # ... work ...
+    yield progress_html, cards_html  # matches [output1, output2]
+```
+
+When a helper function returns a tuple (e.g., `_enable_language_dropdown_on_audio()` returns `(dropdown_update, css_html)`), use `yield` — **not** `yield from`. The `yield` passes the entire tuple as one Gradio output; `yield from` unpacks it into individual yields, causing a `ValueError: didn't return enough output values` error.
+
+```python
+# CORRECT:
+def _on_audio_toggle_change(is_checked):
+    yield _enable_language_dropdown_on_audio(is_checked)  # one tuple → two outputs
+
+# WRONG — unpacks tuple into separate yields:
+def _on_audio_toggle_change(is_checked):
+    yield from _enable_language_dropdown_on_audio(is_checked)
+```
+
 ## Core Module Rules
 
 ### types.py
@@ -327,3 +349,43 @@ The voice dropdown starts hidden (`visible = False`) and only becomes visible wh
 ### 8. LLM output may not match expected count
 
 Both `MiniCPMTextEngine.generate()` and `LlamaCppTextEngine.generate()` validate output count against `batch_size` and retry automatically (max 3 attempts). Do **not** slice output with `[:batch_size]` as a band-aid — the engines already handle this via retry loops. If you bypass an engine and call an LLM directly, you must implement the same validation logic.
+
+### 9. Gradio Blocks context and return value
+
+When building UI in `frontend/ui/widgets.py:build_ui()`, all widget creation and event wiring **must** be wrapped in `with gr.Blocks() as demo:` — Gradio requires all widgets and their event handlers to be inside a Blocks context. The function must **return `demo`** (the context variable), not create a fresh empty `gr.Blocks()` instance. Creating widgets inside an implicit context but returning a brand new empty `Blocks` object causes Gradio's exit handler to fail when reconciling widget state.
+
+```python
+# CORRECT:
+def build_ui():
+    with gr.Blocks() as demo:
+        gr.Button("Click me")
+        # ... more widgets and event wiring ...
+    return demo  # Return the context variable
+
+# WRONG — returns a different empty Blocks, widget state is lost:
+def build_ui():
+    with gr.Blocks() as demo:
+        gr.Button("Click me")
+    return grBlocks()  # ❌ Gradio exit handler fails
+
+### 10. Gradio generator event handlers: `yield` not `yield from`
+
+Gradio's generator-based event handlers expect a **single yield** that produces a tuple matching the number of output components:
+
+```python
+# CORRECT — one yield, one tuple with N values:
+def my_handler():
+    yield (val1, val2, val3)  # matches [output1, output2, output3]
+
+# WRONG — yield from unpacks the tuple into separate yields:
+def my_handler():
+    yield from (val1, val2, val3)  # Gradio sees: val1, then val2, then val3
+```
+
+When a helper function returns a tuple (e.g., `_enable_language_dropdown_on_audio()` returns `(dropdown_update, css_html)`), the event handler must use `yield` to pass the tuple as a single value — **not** `yield from`, which unpacks it into individual yields. Gradio then sees fewer values than expected and raises:
+
+```
+ValueError: A function didn't return enough output values (needed: N, returned: M).
+```
+
+This applies to all generator click/change handlers in `frontend/ui/widgets.py:build_ui()`.

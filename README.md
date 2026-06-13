@@ -33,13 +33,13 @@ uv run app.py
 
 ### Running Smoke Tests
 
-Before committing, verify all modules load correctly:
+All smoke tests pass. Before committing, verify all modules load correctly:
 
 ```bash
 uv run python tests/smoke_test.py
 ```
 
-This checks imports for core types, engine classes, frontend UI, and the app module.
+This checks imports for core types, engine classes, frontend UI, and the app module. The Gradio app must construct without errors — all widgets are created inside a `gr.Blocks()` context and the context variable is returned (not a fresh empty `Blocks` instance). Generator event handlers use `yield (val1, val2)` not `yield from` to match output component counts.
 
 ### Model Weights
 

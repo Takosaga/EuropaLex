@@ -151,8 +151,10 @@ def build_ui() -> "gr.Blocks":
     (only inside __main__), so the import chain is safe:
       import widgets → build_ui() body runs → imports from app → app has no widget deps.
 
-    _phase1_texts is imported from app here — it's shared mutable state between
+    _phase1_texts is accessed via the _app_module reference — shared mutable state between
     Phase 1 (generate_text_async sets it) and Phase 2 (_handle_media_generation_v2 reads it).
+    We use module-level access (not `from app import _phase1_texts`) because rebinding
+    `_phase1_texts = [...]` in app.py would not update a `from-import` binding.
 
     Returns:
         Configured gr.Blocks instance with all events wired.
@@ -160,147 +162,154 @@ def build_ui() -> "gr.Blocks":
     import gradio as gr
 
     # Import business logic handlers INSIDE build_ui to avoid circular import
-    from app import generate_text_async, generate_media_async, _phase1_texts
+    from app import generate_text_async, generate_media_async
+    import app as _app_module  # access _phase1_texts via module ref (rebinding in app.py won't break the reference)
 
     from frontend.ui.cards import generate_cards_html, generate_progress_html
 
     # ─── CSS Block ────────────────────────────────────────────────
-    gr.HTML("""<div id="europalex-styles" style="display:none;">
-    </div>""")
+    with gr.Blocks() as demo:
+        gr.HTML("""<div id="europalex-styles" style="display:none;">
+        </div>""")
 
-    with gr.Row():
-        gr.Column(scale=1)
-        with gr.Column(scale=3, elem_id="app-card"):
-            gr.HTML('<h2 style="color:#1a1a1a; font-family:sans-serif; margin-bottom:4px;">Europa Lex</h2>')
-            gr.HTML('<p style="color:#666; font-size:0.8em; margin-top:-4px; margin-bottom:12px;">AI-powered flashcard generator — translate text into European languages, generate audio &amp; images, and export Anki decks</p>')
+        with gr.Row():
+            gr.Column(scale=1)
+            with gr.Column(scale=3, elem_id="app-card"):
+                gr.HTML('<h2 style="color:#1a1a1a; font-family:sans-serif; margin-bottom:4px;">Europa Lex</h2>')
+                gr.HTML('<p style="color:#666; font-size:0.8em; margin-top:-4px; margin-bottom:12px;">AI-powered flashcard generator — translate text into European languages, generate audio &amp; images, and export Anki decks</p>')
 
-            with gr.Row():
-                scenario_input = gr.Textbox(
-                    label="Scenario or Topic",
-                    placeholder="e.g., ordering coffee, family members, weather",
-                    lines=1,
-                    elem_id="scenario-input",
+                with gr.Row():
+                    scenario_input = gr.Textbox(
+                        label="Scenario or Topic",
+                        placeholder="e.g., ordering coffee, family members, weather",
+                        lines=1,
+                        elem_id="scenario-input",
+                    )
+                    cefr_dropdown = gr.Dropdown(
+                        label="CEFR Level",
+                        choices=["A0", "A1", "A2", "B1", "B2"],
+                        value="B1",
+                        elem_id="cefr-dropdown",
+                    )
+                    batch_slider = gr.Slider(
+                        minimum=1,
+                        maximum=10,
+                        value=3,
+                        step=1,
+                        label="Number of Cards",
+                        elem_id="batch-slider",
+                    )
+
+                # Phase 1 button: Generate Text
+                generate_text_btn = gr.Button("Generate Text", elem_id="generate-btn")
+
+                # Card display area (below Generate Text)
+                card_output = gr.HTML(label="Generated Cards")
+
+                # Phase 2 controls: language, toggles + button (below cards)
+                with gr.Row():
+                    language_dropdown = gr.Dropdown(
+                        label="Target Language",
+                        choices=["Latvian", "Spanish", "French", "German", "Polish", "Italian", "Portuguese", "Finnish"],
+                        value="Latvian",
+                        elem_id="language-dropdown",
+                    )
+                with gr.Row():
+                    audio_toggle = create_toggle("🔊 Audio", value=True, elem_id="toggle-audio")
+                    images_toggle = create_toggle("🖼️ Images", value=True, elem_id="toggle-images")
+
+                voice_dropdown = create_voice_dropdown()  # visible but disabled via CSS until Phase 2 + audio ON
+
+                generate_cards_btn = gr.Button("Generate Cards", elem_id="generate-cards-btn", variant="secondary")
+
+                # Dynamic CSS block — toggled to disable phase-2 controls until text generation completes
+                phase_css = gr.HTML("""<style id="phase-css">#toggle-images, #toggle-audio { opacity: 0.45; pointer-events: none; cursor: not-allowed; } #language-dropdown, #voice-dropdown { opacity: 0.45; pointer-events: none; cursor: not-allowed; }</style>""")
+
+                progress_html = gr.HTML(label="Progress")
+
+                with gr.Row():
+                    gr.Button(".apkg", interactive=False, elem_id="export-btn")
+                    gr.Button(".csv", interactive=False, elem_id="export-btn")
+                    gr.Button("Sync to Anki", interactive=False, elem_id="export-btn")
+
+            gr.Column(scale=1)
+
+        # ─── Event Wiring ──────────────────────────────────────────────
+
+        def _handle_text_generation(scenario: str, cefr_level: str, batch_size: int):
+            """Wrapper for generate_text_async that handles empty scenario."""
+            if not scenario.strip():
+                yield generate_progress_html(0, "⚠️ Please enter a scenario or topic."), '<div style="color:#c44; padding:20px;">Please enter a scenario or topic to generate cards.</div>'
+                return
+            for result in generate_text_async(scenario, cefr_level, batch_size):
+                yield result
+
+        def _handle_media_generation_v2(scenario: str, cefr_level: str, batch_size: int, target_language: str, include_audio: bool, include_images: bool, voice: str):
+            """Wrapper for generate_media_async that handles empty scenario and missing Phase 1 texts.
+
+            Reads _phase1_texts from app module (via module ref to survive rebinding).
+            """
+            if not _app_module._phase1_texts:
+                yield generate_progress_html(0, "⚠️ Please generate text first."), (
+                    '<div style="color:#c44; padding:20px;">'
+                    'No Phase 1 text found. Generate English text first, then click "Generate Cards".'
+                    '</div>'
                 )
-                cefr_dropdown = gr.Dropdown(
-                    label="CEFR Level",
-                    choices=["A0", "A1", "A2", "B1", "B2"],
-                    value="B1",
-                    elem_id="cefr-dropdown",
-                )
-                batch_slider = gr.Slider(
-                    minimum=1,
-                    maximum=10,
-                    value=3,
-                    step=1,
-                    label="Number of Cards",
-                    elem_id="batch-slider",
-                )
+                return
 
-            # Phase 1 button: Generate Text
-            generate_text_btn = gr.Button("Generate Text", elem_id="generate-btn")
+            if not scenario.strip():
+                yield generate_progress_html(0, "⚠️ Please enter a scenario or topic."), '<div style="color:#c44; padding:20px;">Please enter a scenario or topic to generate cards.</div>'
+                return
 
-            # Card display area (below Generate Text)
-            card_output = gr.HTML(label="Generated Cards")
+            instruct = _VOICE_MAP.get(voice, voice)
+            for result in generate_media_async(scenario, cefr_level, batch_size, target_language, include_audio, include_images, instruct):
+                yield result
 
-            # Phase 2 controls: language, toggles + button (below cards)
-            with gr.Row():
-                language_dropdown = gr.Dropdown(
-                    label="Target Language",
-                    choices=["Latvian", "Spanish", "French", "German", "Polish", "Italian", "Portuguese", "Finnish"],
-                    value="Latvian",
-                    elem_id="language-dropdown",
-                )
-            with gr.Row():
-                audio_toggle = create_toggle("🔊 Audio", value=True, elem_id="toggle-audio")
-                images_toggle = create_toggle("🖼️ Images", value=True, elem_id="toggle-images")
+        def _on_media_generation_complete():
+            """Hide both buttons during media generation."""
+            import gradio as gr
+            return (gr.Button(visible=False), gr.Button(visible=False))
 
-            voice_dropdown = create_voice_dropdown()  # visible but disabled via CSS until Phase 2 + audio ON
+        generate_text_btn.click(
+            fn=_handle_text_generation,
+            inputs=[scenario_input, cefr_dropdown, batch_slider],
+            outputs=[progress_html, card_output],
+        ).then(
+            fn=_enable_phase2,
+            inputs=[],
+            outputs=[images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css],
+        )
 
-            generate_cards_btn = gr.Button("Generate Cards", elem_id="generate-cards-btn", variant="secondary")
+        # When audio toggle changes: show/hide voice dropdown and manage disabled CSS
+        def _on_audio_toggle_change(is_checked: bool):
+            """Handle audio toggle change: update voice dropdown + CSS.
 
-            # Dynamic CSS block — toggled to disable phase-2 controls until text generation completes
-            phase_css = gr.HTML("""<style id="phase-css">#toggle-images, #toggle-audio { opacity: 0.45; pointer-events: none; cursor: not-allowed; } #language-dropdown, #voice-dropdown { opacity: 0.45; pointer-events: none; cursor: not-allowed; }</style>""")
+            Yields a single tuple (dropdown_update, css_html) so Gradio's
+            generator handler sees one yield with 2 values matching the
+            [voice_dropdown, phase_css] outputs.
+            """
+            yield _enable_language_dropdown_on_audio(is_checked)
 
-            progress_html = gr.HTML(label="Progress")
+        audio_toggle.change(
+            fn=_on_audio_toggle_change,
+            inputs=[audio_toggle],
+            outputs=[voice_dropdown, phase_css],
+        )
 
-            with gr.Row():
-                gr.Button(".apkg", interactive=False, elem_id="export-btn")
-                gr.Button(".csv", interactive=False, elem_id="export-btn")
-                gr.Button("Sync to Anki", interactive=False, elem_id="export-btn")
+        generate_cards_btn.click(
+            fn=_handle_media_generation_v2,
+            inputs=[scenario_input, cefr_dropdown, batch_slider, language_dropdown, audio_toggle, images_toggle, voice_dropdown],
+            outputs=[progress_html, card_output],
+        ).then(
+            fn=_on_media_generation_complete,
+            inputs=[],
+            outputs=[generate_text_btn, generate_cards_btn],
+        )
 
-        gr.Column(scale=1)
+        # Reset toggles and both buttons when user changes any input parameter
+        scenario_input.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css])
+        cefr_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css])
+        batch_slider.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css])
+        # Language change does NOT reset — user can switch languages freely after Phase 1
 
-    # ─── Event Wiring ──────────────────────────────────────────────
-
-    def _handle_text_generation(scenario: str, cefr_level: str, batch_size: int):
-        """Wrapper for generate_text_async that handles empty scenario."""
-        if not scenario.strip():
-            yield generate_progress_html(0, "⚠️ Please enter a scenario or topic."), '<div style="color:#c44; padding:20px;">Please enter a scenario or topic to generate cards.</div>'
-            return
-        for result in generate_text_async(scenario, cefr_level, batch_size):
-            yield result
-
-    def _handle_media_generation_v2(scenario: str, cefr_level: str, batch_size: int, target_language: str, include_audio: bool, include_images: bool, voice: str):
-        """Wrapper for generate_media_async that handles empty scenario and missing Phase 1 texts.
-
-        Reads _phase1_texts from app module (imported at build_ui() call time).
-        """
-        if not _phase1_texts:
-            yield generate_progress_html(0, "⚠️ Please generate text first."), (
-                '<div style="color:#c44; padding:20px;">'
-                'No Phase 1 text found. Generate English text first, then click "Generate Cards".'
-                '</div>'
-            )
-            return
-
-        if not scenario.strip():
-            yield generate_progress_html(0, "⚠️ Please enter a scenario or topic."), '<div style="color:#c44; padding:20px;">Please enter a scenario or topic to generate cards.</div>'
-            return
-
-        instruct = _VOICE_MAP.get(voice, voice)
-        for result in generate_media_async(scenario, cefr_level, batch_size, target_language, include_audio, include_images, instruct):
-            yield result
-
-    def _on_media_generation_complete():
-        """Hide both buttons during media generation."""
-        import gradio as gr
-        return (gr.Button(visible=False), gr.Button(visible=False))
-
-    generate_text_btn.click(
-        fn=_handle_text_generation,
-        inputs=[scenario_input, cefr_dropdown, batch_slider],
-        outputs=[progress_html, card_output],
-    ).then(
-        fn=_enable_phase2,
-        inputs=[],
-        outputs=[images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css],
-    )
-
-    # When audio toggle changes: show/hide voice dropdown and manage disabled CSS
-    def _on_audio_toggle_change(is_checked: bool):
-        """Handle audio toggle change: update voice dropdown + CSS."""
-        yield from _enable_language_dropdown_on_audio(is_checked)
-
-    audio_toggle.change(
-        fn=_on_audio_toggle_change,
-        inputs=[audio_toggle],
-        outputs=[voice_dropdown, phase_css],
-    )
-
-    generate_cards_btn.click(
-        fn=_handle_media_generation_v2,
-        inputs=[scenario_input, cefr_dropdown, batch_slider, language_dropdown, audio_toggle, images_toggle, voice_dropdown],
-        outputs=[progress_html, card_output],
-    ).then(
-        fn=_on_media_generation_complete,
-        inputs=[],
-        outputs=[generate_text_btn, generate_cards_btn],
-    )
-
-    # Reset toggles and both buttons when user changes any input parameter
-    scenario_input.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css])
-    cefr_dropdown.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, phase_css])
-    batch_slider.change(_reset_to_idle, inputs=[], outputs=[generate_text_btn, images_toggle, audio_toggle, generate_cards_btn, voice_dropdown, phase_css])
-    # Language change does NOT reset — user can switch languages freely after Phase 1
-
-    return gr.Blocks()
+    return demo
