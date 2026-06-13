@@ -31,12 +31,29 @@ uv run app.py
 
 > **Dependencies:** This project requires PyTorch, diffusers, omnivoice, pydantic, and soundfile in addition to Gradio. These are installed automatically by `uv sync`.
 
-### Running Smoke Tests
+### Running Tests
 
-All smoke tests pass. Before committing, verify all modules load correctly:
+All tests use pytest. Run the full suite:
 
 ```bash
-uv run python tests/smoke_test.py
+# Run all tests
+uv run pytest tests/ -v
+
+# Run specific test file
+uv run pytest tests/cards_test.py -v
+
+# Run with coverage
+uv run pytest tests/ -v --cov=core --cov=frontend --cov=app.py
+```
+
+The test suite mocks all GPU/model code — no model weights or GPU required to run tests.
+
+### Quick Smoke Check
+
+For a quick sanity check before committing:
+
+```bash
+uv run pytest tests/smoke_test.py -v
 ```
 
 This checks imports for core types, engine classes, frontend UI, and the app module. The Gradio app must construct without errors — all widgets are created inside a `gr.Blocks()` context and the context variable is returned (not a fresh empty `Blocks` instance). Generator event handlers use `yield (val1, val2)` not `yield from` to match output component counts.
