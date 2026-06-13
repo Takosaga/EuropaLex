@@ -45,12 +45,68 @@ def _create_model() -> "genanki.Model":
     )
 
 
-# ─── Stub implementations (replaced in subsequent tasks) ──────────
+def _extract_filename(path: str | None) -> str:
+    """Extract bare filename from a path string, or return empty string.
+
+    Args:
+        path: File path string or None.
+
+    Returns:
+        Bare filename (e.g., 'hello_A2_LV_0.wav') or empty string.
+    """
+    if not path:
+        return ""
+    return Path(path).name
 
 
-def _create_note(*args, **kwargs):  # type: ignore[no-untyped-def]
-    """Stub — replaced in Task 3."""
-    raise NotImplementedError("_create_note not yet implemented")
+def _create_note(
+    model: "genanki.Model",
+    translation: str,
+    english: str,
+    audio_path: str | None = None,
+    image_path: str | None = None,
+) -> "genanki.Note":
+    """Create a genanki Note with EuropaLex field mapping.
+
+    Fields are HTML-escaped. Media references use original filenames
+    (Anki resolves them to hashed files in the package).
+
+    Args:
+        model: The genanki.Model this note belongs to.
+        translation: Target-language text (front side).
+        english: English source text (back side).
+        audio_path: Path to TTS .wav file or None.
+        image_path: Path to illustration .png file or None.
+
+    Returns:
+        Configured genanki.Note instance.
+    """
+    import genanki
+
+    # HTML-escape text fields
+    translation_escaped = html.escape(translation) if translation else ""
+    english_escaped = html.escape(english) if english else ""
+
+    # Build audio field: <audio controls src="filename.wav"> or empty
+    audio_filename = _extract_filename(audio_path)
+    audio_field = (
+        f'<audio controls src="{audio_filename}"></audio>'
+        if audio_filename
+        else ""
+    )
+
+    # Build image field: <img src="filename.png" style="max-width:100%"> or empty
+    image_filename = _extract_filename(image_path)
+    image_field = (
+        f'<img src="{image_filename}" style="max-width:100%">'
+        if image_filename
+        else ""
+    )
+
+    return genanki.Note(
+        model=model,
+        fields=[translation_escaped, english_escaped, audio_field, image_field],
+    )
 
 
 def _create_package(*args, **kwargs):  # type: ignore[no-untyped-def]

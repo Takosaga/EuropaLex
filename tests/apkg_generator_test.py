@@ -72,3 +72,78 @@ class TestModelCreation:
         ord_image = qfmt.index("{{Image}}")
         ord_audio = qfmt.index("{{Audio}}")
         assert ord_translation < ord_image < ord_audio
+
+
+class TestNoteCreation:
+    """Tests for _create_note function."""
+
+    def test_text_fields_escaped(self):
+        """Text fields are HTML-escaped to prevent injection."""
+        import genanki
+        model = _create_model()
+        note = _create_note(
+            model=model,
+            translation="Hello <script>alert('xss')</script>",
+            english='Test & "quotes"',
+            audio_path=None,
+            image_path=None,
+        )
+        assert isinstance(note, genanki.Note)
+        # HTML entities should be escaped
+        assert "&lt;script&gt;" in note.fields[0]
+        assert "&amp;" in note.fields[1]
+
+    def test_audio_field_with_path(self):
+        """Audio field contains <audio> tag with original filename."""
+        import genanki
+        model = _create_model()
+        note = _create_note(
+            model=model,
+            translation="Hola",
+            english="Hello",
+            audio_path="/some/path/hello_A2_LV_0.wav",
+            image_path=None,
+        )
+        assert "<audio controls src=" in note.fields[2]
+        assert "hello_A2_LV_0.wav" in note.fields[2]
+
+    def test_image_field_with_path(self):
+        """Image field contains <img> tag with original filename."""
+        import genanki
+        model = _create_model()
+        note = _create_note(
+            model=model,
+            translation="Hola",
+            english="Hello",
+            audio_path=None,
+            image_path="/some/path/hello_A2_LV_0.png",
+        )
+        assert "<img src=" in note.fields[3]
+        assert "hello_A2_LV_0.png" in note.fields[3]
+
+    def test_empty_media_paths_become_empty_strings(self):
+        """None audio/image paths produce empty string fields."""
+        import genanki
+        model = _create_model()
+        note = _create_note(
+            model=model,
+            translation="Hello",
+            english="Hola",
+            audio_path=None,
+            image_path=None,
+        )
+        assert note.fields[2] == ""  # Audio field
+        assert note.fields[3] == ""  # Image field
+
+    def test_note_has_correct_field_count(self):
+        """Note has exactly 4 fields matching model definition."""
+        import genanki
+        model = _create_model()
+        note = _create_note(
+            model=model,
+            translation="A",
+            english="B",
+            audio_path=None,
+            image_path=None,
+        )
+        assert len(note.fields) == 4
