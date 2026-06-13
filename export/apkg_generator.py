@@ -268,6 +268,56 @@ def _inject_media(
         zout.writestr('media', json.dumps(media_json))
 
 
-def generate_apkg_package(*args, **kwargs):  # type: ignore[no-untyped-def]
-    """Stub — replaced in Task 6."""
-    raise NotImplementedError("generate_apkg_package not yet implemented")
+def generate_apkg_package(
+    cards: list[dict],
+    scenario: str,
+    cefr_level: str,
+    target_language: str,
+) -> str:
+    """Generate an Anki package (.apkg) with embedded media.
+
+    Creates a genanki note model, builds notes from card data, generates the
+    base .apkg zip, then injects audio/image files with correct hashed names
+    and updates the media manifest.
+
+    Args:
+        cards: List of card dicts with keys: 'text', 'translation',
+               'audio_path' (str or None), 'image_path' (str or None).
+        scenario: Free-form scenario/topic string.
+        cefr_level: CEFR level string (e.g., 'A2', 'B1').
+        target_language: Target language name (e.g., 'Latvian').
+
+    Returns:
+        Absolute path to the generated .apkg file.
+
+    Raises:
+        ValueError: If no cards provided.
+        RuntimeError: If zip generation fails.
+    """
+    if not cards:
+        raise ValueError("No cards provided for APKG export")
+
+    # Step 1: Create model and notes
+    model = _create_model()
+    notes = []
+    for card in cards:
+        note = _create_note(
+            model=model,
+            translation=card.get("translation", ""),
+            english=card.get("text", ""),
+            audio_path=card.get("audio_path"),
+            image_path=card.get("image_path"),
+        )
+        notes.append(note)
+
+    # Step 2: Create base package (genanki handles database + zip structure)
+    pkg_path = _create_package(notes, scenario, cefr_level, target_language)
+
+    try:
+        # Step 3: Inject media files
+        _inject_media(pkg_path, cards)
+    except Exception as e:
+        logger.warning("Media injection failed, returning text-only .apkg: %s", e)
+        # Return the text-only package — user still gets a usable .apkg
+
+    return pkg_path

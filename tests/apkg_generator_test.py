@@ -398,3 +398,122 @@ class TestMediaInjection:
             manifest = json.loads(zf.read('media'))
             # Only one entry because content is identical (dedup by hash)
             assert len(manifest) == 1
+
+
+class TestGenerateApkgPackage:
+    """Tests for the main generate_apkg_package function."""
+
+    def test_returns_path(self, tmp_path):
+        """Returns absolute path to .apkg file."""
+        cards = [
+            {
+                "text": "Hello",
+                "translation": "Hola",
+                "audio_path": None,
+                "image_path": None,
+            },
+        ]
+        result = generate_apkg_package(cards, "greetings", "A1", "Spanish")
+        assert isinstance(result, str)
+        assert Path(result).is_absolute()
+
+    def test_returns_valid_zip(self, tmp_path):
+        """Return value is a valid zip file."""
+        cards = [{"text": "Hello", "translation": "Hola", "audio_path": None, "image_path": None}]
+        result = generate_apkg_package(cards, "greetings", "A1", "Spanish")
+        assert zipfile.is_zipfile(result)
+
+    def test_contains_note_data(self, tmp_path):
+        """Package database contains correct number of notes."""
+        cards = [
+            {"text": "One", "translation": "Uno", "audio_path": None, "image_path": None},
+            {"text": "Two", "translation": "Dos", "audio_path": None, "image_path": None},
+            {"text": "Three", "translation": "Tres", "audio_path": None, "image_path": None},
+        ]
+        result = generate_apkg_package(cards, "numbers", "A1", "Spanish")
+        import sqlite3
+        with zipfile.ZipFile(result, 'r') as zf:
+            db_bytes = zf.read('collection.anki2')
+        tmp_db = tmp_path / "temp.db"
+        tmp_db.write_bytes(db_bytes)
+        conn = sqlite3.connect(str(tmp_db))
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM notes")
+        count = cur.fetchone()[0]
+        conn.close()
+        assert count == 3
+
+    def test_media_injected_when_paths_exist(self, tmp_path):
+        """Audio/image files are injected into package when paths exist."""
+        wav_dir = tmp_path / "audio"
+        wav_dir.mkdir()
+        wav_path = str(wav_dir / "test_A2_LV_0.wav")
+        Path(wav_path).write_bytes(b'\x00' * 100)
+
+        cards = [
+            {
+                "text": "Hello",
+                "translation": "Hola",
+                "audio_path": wav_path,
+                "image_path": None,
+            },
+        ]
+        result = generate_apkg_package(cards, "test", "A2", "Latvian")
+
+        with zipfile.ZipFile(result, 'r') as zf:
+            manifest = json.loads(zf.read('media'))
+            assert len(manifest) == 1
+            hash_key = list(manifest.keys())[0]
+            assert hash_key.endswith(".wav")
+
+    def test_no_media_when_all_none(self, tmp_path):
+        """No media files in package when all paths are None."""
+        cards = [{"text": "Hello", "translation": "Hola", "audio_path": None, "image_path": None}]
+        result = generate_apkg_package(cards, "test", "A1", "Spanish")
+
+        with zipfile.ZipFile(result, 'r') as zf:
+            names = zf.namelist()
+            assert not any(n.endswith('.wav') or n.endswith('.png') for n in names)
+
+    def test_missing_media_files_skipped(self, tmp_path):
+        """Function succeeds even when media files don't exist on disk."""
+        cards = [
+            {
+                "text": "Hello",
+                "translation": "Hola",
+                "audio_path": "/nonexistent/path.wav",
+                "image_path": None,
+            },
+        ]
+        result = generate_apkg_package(cards, "test", "A1", "Spanish")
+        assert Path(result).exists()
+
+    def test_empty_cards_raises_valueerror(self):
+        """Raises ValueError when no cards provided."""
+        with pytest.raises(ValueError, match="No cards"):
+            generate_apkg_package([], "test", "A1", "Spanish")
+
+    def test_deck_name_in_output(self, tmp_path):
+        """Deck name in package matches expected pattern."""
+        cards = [{"text": "Hello", "translation": "Hola", "audio_path": None, "image_path": None}]
+        result = generate_apkg_package(cards, "ordering coffee", "A2", "Latvian")
+
+        import sqlite3
+        with zipfile.ZipFile(result, 'r') as zf:
+            db_bytes = zf.read('collection.anki2')
+        tmp_db = tmp_path / "temp.db"
+        tmp_db.write_bytes(db_bytes)
+        conn = sqlite3.connect(str(tmp_db))
+        cur = conn.cursor()
+        cur.execute("SELECT decks FROM col")
+        row = cur.fetchone()
+        conn.close()
+
+        assert row is not None
+        decks_data = json.loads(row[0])
+        # Find deck with expected name pattern
+        found = any(
+            isinstance(v, dict) and 'ordering_coffee' in v.get('name', '').lower()
+            for v in decks_data.values()
+        )
+        assert found, f"Expected 'ordering_coffee' in deck name. Decks: {list(decks_data.keys())}"
