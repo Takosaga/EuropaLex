@@ -106,18 +106,17 @@ def test_enable_phase2_returns_tuple(_mock_gradio):
 
 
 def test_reset_to_idle_returns_tuple(_mock_gradio):
-    """_reset_to_idle() returns tuple with interactive=False, disabled CSS string, plus export buttons."""
+    """_reset_to_idle() returns tuple with interactive=False, disabled CSS string, and download CSV button."""
     from frontend.ui.widgets import _reset_to_idle
 
     result = _reset_to_idle()
     assert isinstance(result, tuple)
-    assert len(result) == 8
+    assert len(result) == 7
     # Element at index 5 should be a CSS string (non-empty)
     assert isinstance(result[5], str)
     assert len(result[5]) > 0
-    # Last two elements should be export button mocks
+    # Last element should be the download CSV button mock
     assert isinstance(result[6], MagicMock)
-    assert isinstance(result[7], MagicMock)
 
 
 def test_reset_to_idle_disabled_css_content(_mock_gradio):
