@@ -138,7 +138,10 @@ The UI operates in two distinct phases:
 4. User clicks "Generate Cards"
 5. `app.py` calls the media generation handler → tiny-aya-water (`LlamaCppTextEngine`) translates, then OmniVoice (`TTSEngine`) generates TTS audio with the selected voice via voice design mode
 6. Cards update: translation appears on the front, image and audio controls appear alongside it; English text moves to the back
-6. Both buttons hide during generation, reappear when done
+7. Both buttons hide during generation, reappear when done
+
+**Regenerating Cards After Phase 2:**
+After Phase 2 completes, changing any Phase 2 parameter (target language, audio toggle, image toggle, or voice dropdown) automatically restores the **Generate Cards** button as visible and interactive, enabling regeneration without re-running Phase 1. This is implemented via `_restore_generate_cards_button()` chained as `.then()` handlers on four event chains: `language_dropdown.change`, `audio_toggle.change`, `images_toggle.change`, and `voice_dropdown.change`.
 
 **Rules:**
 - Never skip Phase 1. Even if media-only mode seems useful, text must be generated first.
@@ -320,6 +323,16 @@ The disabled/enabled toggle states are managed via CSS injection (`#phase-css`) 
 - Give them an `elem_id` for targeting
 - Include them in `_reset_to_idle()` outputs (including `language_dropdown` which triggers reset on change)
 - Include them in `_enable_phase2()` outputs
+
+### 2b. Parameter change event chains require `.then(_restore_generate_cards_button)`
+
+After Phase 2 completes, four event chains use `_restore_generate_cards_button()` as a chained `.then()` handler to restore the Generate Cards button when parameters change:
+- `language_dropdown.change(_reset_to_idle).then(_restore_generate_cards_button)`
+- `audio_toggle.change(_on_audio_toggle_change).then(_restore_generate_cards_button)`
+- `images_toggle.change(lambda: (...)).` (inline lambda restores button)
+- `voice_dropdown.change(lambda: (...)).` (inline lambda restores button)
+
+If you add a new phase-2 control that affects card generation, wire it with the same pattern. The helper returns `(gr.Button(visible=True, interactive=True), gr.Button(visible=True, interactive=False))` for `[generate_cards_btn, export_btn]`.
 
 ### 3. Gradio generator functions must yield tuples
 
