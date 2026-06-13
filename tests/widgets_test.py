@@ -184,3 +184,35 @@ def test_restore_generate_cards_button_export_stays_disabled(_mock_gradio):
     second_call_kwargs = calls[1].kwargs if calls[1].kwargs else calls[1][1]
     assert second_call_kwargs.get("visible") is True
     assert second_call_kwargs.get("interactive") is False
+
+
+def test_restore_generate_cards_button_only_returns_tuple(_mock_gradio):
+    """_restore_generate_cards_button_only() returns tuple of 3 (Button, Button, Button)."""
+    from frontend.ui.widgets import _restore_generate_cards_button_only
+
+    result = _restore_generate_cards_button_only()
+    assert isinstance(result, tuple)
+    assert len(result) == 3
+
+
+def test_restore_generate_cards_button_only_hides_generate_text(_mock_gradio):
+    """Generate Text button stays hidden — only appears on scenario/CEFR/batch reset."""
+    from frontend.ui.widgets import _restore_generate_cards_button_only
+
+    _restore_generate_cards_button_only()
+    calls = _mock_gradio.Button.call_args_list
+    assert len(calls) == 3
+    first_call_kwargs = calls[0].kwargs if calls[0].kwargs else calls[0][1]
+    assert first_call_kwargs.get("visible") is False
+
+
+def test_restore_generate_cards_button_only_restores_generate_cards(_mock_gradio):
+    """Generate Cards button becomes visible and interactive."""
+    from frontend.ui.widgets import _restore_generate_cards_button_only
+
+    _restore_generate_cards_button_only()
+    calls = _mock_gradio.Button.call_args_list
+    assert len(calls) == 3
+    second_call_kwargs = calls[1].kwargs if calls[1].kwargs else calls[1][1]
+    assert second_call_kwargs.get("visible") is True
+    assert second_call_kwargs.get("interactive") is True
