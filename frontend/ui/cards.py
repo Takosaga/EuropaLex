@@ -9,6 +9,27 @@ from pathlib import Path
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
+def _build_image_url(image_path: str) -> str:
+    """Convert an absolute image file path to a Gradio static-file URL.
+
+    Similar to ``_build_audio_url`` but for images. Appends a cache-busting
+    query parameter so regenerated images are not served from browser cache
+    under the same filename.
+
+    Args:
+        image_path: Absolute filesystem path to the .png file.
+
+    Returns:
+        URL string like ``/gradio_api/file=.local/models/output/images/image_0.png?t=1234567890``.
+    """
+    import time
+    try:
+        rel = Path(image_path).relative_to(_PROJECT_ROOT)
+    except ValueError:
+        return image_path
+    return f"/gradio_api/file={rel}?t={int(time.time())}".replace(os.sep, '/')
+
+
 def _build_audio_url(audio_path: str) -> str:
     """Convert an absolute audio file path to a Gradio static-file URL.
 
@@ -81,16 +102,12 @@ def render_card_html(
     if include_image:
         image_path = card_data.get("image_path")
         if image_path and Path(image_path).exists():
-            try:
-                rel = Path(image_path).relative_to(_PROJECT_ROOT)
-                img_url = f"/gradio_api/file={rel}".replace(os.sep, '/')
-                image_box = (
-                    '<div class="media-box media-box-image">'
-                    f'<img src="{img_url}" alt="Illustration" style="width:100%; border-radius:4px;">'
-                    '</div>'
-                )
-            except ValueError:
-                image_box = '<div class="media-box media-box-image">🖼️</div>'
+            img_url = _build_image_url(image_path)
+            image_box = (
+                '<div class="media-box media-box-image">'
+                f'<img src="{img_url}" alt="Illustration" style="width:100%; border-radius:4px;">'
+                '</div>'
+            )
         else:
             image_box = '<div class="media-box media-box-image img-placeholder">🖼️</div>'
 
