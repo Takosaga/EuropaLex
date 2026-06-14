@@ -122,7 +122,7 @@ EuropaLex generates flashcards in two phases: English text first (Phase 1), then
 
 ### Phase 2 — Generate Translation + Media
 
-1. Select a target language from the **Target Language** dropdown (Latvian, Spanish, French, German, Polish, Italian, Portuguese, Finnish)
+1. Select a target language from the **Target Language** dropdown (23 EU languages: Bulgarian, Croatian, Czech, Danish, Dutch, Estonian, Finnish, French, German, Greek, Hungarian, Irish, Italian, Latvian, Lithuanian, Maltese, Polish, Portuguese, Romanian, Slovak, Slovenian, Spanish, Swedish)
 2. After Phase 1 completes, the **Images** and **Audio** toggles become active (unchecked by default)
 3. Toggle on whichever media types you want (images, audio, or both)
 4. Click **Generate Cards**
