@@ -8,14 +8,29 @@ from typing import Any
 
 # ISO 639-1 language abbreviation mapping
 _LANGUAGE_ABBREVS: dict[str, str] = {
-    "Latvian": "LV",
-    "Spanish": "ES",
+    "Bulgarian": "BG",
+    "Croatian": "HR",
+    "Czech": "CS",
+    "Danish": "DA",
+    "Dutch": "NL",
+    "Estonian": "ET",
+    "Finnish": "FI",
     "French": "FR",
     "German": "DE",
-    "Polish": "PL",
+    "Greek": "EL",
+    "Hungarian": "HU",
+    "Irish": "GA",
     "Italian": "IT",
+    "Latvian": "LV",
+    "Lithuanian": "LT",
+    "Maltese": "MT",
+    "Polish": "PL",
     "Portuguese": "PT",
-    "Finnish": "FI",
+    "Romanian": "RO",
+    "Slovak": "SK",
+    "Slovenian": "SL",
+    "Spanish": "ES",
+    "Swedish": "SV",
 }
 
 # Project root for resolving relative paths
