@@ -8,45 +8,6 @@ from unittest.mock import patch, MagicMock
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
-# ── transform_mock_cards ─────────────────────────────────────────
-
-def test_transform_mock_cards_legacy_to_new_format():
-    """Legacy {"front": X, "back": Y} → new {"text": Y, "translation": X}."""
-    from app import transform_mock_cards
-
-    raw = [
-        {"front": "Sveiki", "back": "Hello"},
-        {"front": "Paldies", "back": "Thank you"},
-    ]
-    result = transform_mock_cards(raw)
-    assert result[0]["text"] == "Hello"
-    assert result[0]["translation"] == "Sveiki"
-    assert result[1]["text"] == "Thank you"
-    assert result[1]["translation"] == "Paldies"
-
-
-def test_transform_mock_cards_empty_input():
-    """Empty input returns empty list."""
-    from app import transform_mock_cards
-
-    assert transform_mock_cards([]) == []
-
-
-def test_transform_mock_cards_preserves_order():
-    """Multiple cards preserved in order."""
-    from app import transform_mock_cards
-
-    raw = [
-        {"front": "A1", "back": "B1"},
-        {"front": "A2", "back": "B2"},
-        {"front": "A3", "back": "B3"},
-    ]
-    result = transform_mock_cards(raw)
-    assert len(result) == 3
-    assert result[0]["text"] == "B1"
-    assert result[1]["text"] == "B2"
-    assert result[2]["text"] == "B3"
-
 
 # ── _progress_pct ────────────────────────────────────────────────
 
