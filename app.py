@@ -83,6 +83,34 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# ─── Auto-download models on first run ────────────────────────
+# Ensures the app works out-of-the-box (e.g. HF Spaces) without
+# baking 26 GB of model weights into git.
+def _auto_download_models():
+    """Download all models if none are present yet."""
+    models_dir = Path(
+        os.environ.get("EUROPALEX_MODELS_DIR", ".local/models")
+    )
+    # Check for GGUF files (llama-cpp-python models). If missing, download
+    # everything — this covers the fresh-install case. Flux safetensors are
+    # not checked separately because if GGUF is missing but safetensors exist,
+    # the user still needs MiniCPM/tiny-aya and a full download is correct.
+    if not any(models_dir.rglob("*.gguf")):
+        print(f"No models found in {models_dir}. Downloading...")
+        try:
+            from models.download_models import download_all
+            download_all(output_dir=str(models_dir))
+        except Exception as e:
+            logger.error("Auto-download failed: %s", e)
+            raise RuntimeError(
+                f"Model download failed. Please run:\n"
+                f"  python -m models.download_models\n"
+                f"Or set EUROPALEX_MODELS_DIR to a directory with model files."
+            ) from e
+
+
+_auto_download_models()
+
 # ─── Phase State ────────────────────────────────────────────────────
 
 _phase1_texts: list[str] = []    # English texts from Phase 1, passed to Phase 2
