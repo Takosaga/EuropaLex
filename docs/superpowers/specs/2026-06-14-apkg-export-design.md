@@ -8,12 +8,27 @@ Replace the current `csv_for_anki.py` module (which builds a CSV + media folder 
 
 | Change | Detail |
 |---|---|
-| **New file** | `export/apkg_export.py` — genanki-based .apkg generator |
+| **New file** | `export/apkg_export.py` — genanki-based .apkg generator (replaces csv_for_anki) |
 | **Deleted file** | `export/csv_for_anki.py` — replaced entirely |
-| **Unchanged** | `export/csv_export.py` — regular CSV + flat media export (unaffected) |
+| **Unchanged** | `export/csv_export.py` — regular CSV + flat media export (unaffected, separate feature) |
 | **Dependency** | `genanki>=0.13.0` already in `pyproject.toml` |
 
-The new module builds cards directly in-memory using genanki's API (`Model`, `Deck`, `Package`). Media files are copied into a temp `collection.media/` directory and bundled by genanki into the `.apkg` output. No intermediate CSV file is written.
+The new module follows a two-phase approach:
+
+**Phase 1 — Build CSV + media folder:**
+- Create export dir → `collection.media/` subfolder
+- Copy media files to `collection.media/` (same naming convention as csv_for_anki.py)
+- Write `cards.csv` with HTML markup in Image column and `[sound:]` in Audio column
+- CSV format matches `working_anki_example/cards.csv` exactly: columns are `Front,Audio,Image,Back`
+
+**Phase 2 — Package with genanki:**
+- Read the CSV back (same logic as `create_anki_deck.py`)
+- Extract bare filenames from `<img src="...">` and `[sound:... ]` markup
+- Build genanki.Model → genanki.Deck → genanki.Note per card
+- `genanki.Package(deck)` + set `package.media_files` → `write_to_file()`
+- Write `.apkg` to export dir
+
+The intermediate CSV serves as a debug/inspection artifact and matches the working example's workflow.
 
 ## Card Styling & Template
 
