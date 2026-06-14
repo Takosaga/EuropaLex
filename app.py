@@ -7,6 +7,76 @@ No backend connection — visual preview only.
 Run: uv sync && python app.py
 """
 
+# ─── Disable Gradio's BrotliMiddleware BEFORE any other imports ────
+# Gradio 6.x adds BrotliMiddleware which has a known bug with h11:
+# For streaming responses (generator yields), the middleware deletes
+# Content-Length and uses chunked transfer encoding, but h11 can
+# miscalculate content length from the first compressed chunk,
+# then reject subsequent chunks as "Too much data for declared
+# Content-Length". We disable it by replacing the class in routes.py.
+try:
+    import gradio.routes as _routes_mod
+    from gradio.brotli_middleware import BrotliMiddleware
+
+    class _PassthroughMiddleware:
+        """Drop-in replacement that passes all requests through uncompressed."""
+
+        def __init__(self, app, **kwargs):
+            self.app = app
+
+        async def __call__(self, scope, receive, send):
+            await self.app(scope, receive, send)
+
+    _routes_mod.BrotliMiddleware = _PassthroughMiddleware  # type: ignore[assignment]
+except Exception:
+    pass  # Non-critical; app will work without this patch
+
+# ─── Fix Gradio file download Content-Length bug ──────────────────────
+# Gradio 6.x uses Starlette FileResponse which can cause "Too little data
+# for declared Content-Length" with h11 on streaming file downloads.
+# The root cause: FileResponse.set_stat_headers() sets Content-Length based
+# on the file size. With h11, this causes a protocol error during chunked
+# transfer. We patch FileResponse to skip setting Content-Length so h11
+# falls back to chunked transfer encoding.
+#
+# IMPORTANT: Gradio imports FileResponse directly into its modules (routes.py,
+# route_utils.py). Simply replacing starlette.responses.FileResponse is not
+# enough — we must also patch Gradio's cached references.
+try:
+    from starlette.responses import FileResponse as _FileResponseBase
+    import starlette.responses as _sr_mod
+
+    class _NoContentLengthFileResponse(_FileResponseBase):
+        """FileResponse that never sets Content-Length to avoid h11 bugs."""
+
+        def set_stat_headers(self, stat_result):
+            """Override to skip setting Content-Length (keeps last-modified and etag)."""
+            last_modified = _sr_mod.formatdate(stat_result.st_mtime, usegmt=True)
+            etag_base = str(stat_result.st_mtime) + "-" + str(stat_result.st_size)
+            import hashlib
+            etag = '"' + hashlib.md5(etag_base.encode(), usedforsecurity=False).hexdigest() + '"'
+            self.headers.setdefault("last-modified", last_modified)
+            self.headers.setdefault("etag", etag)
+            # Deliberately NOT setting content-length
+
+    # Patch Starlette's module-level reference
+    _sr_mod.FileResponse = _NoContentLengthFileResponse  # type: ignore[assignment]
+
+    # Also patch Gradio's cached references (they imported FileResponse directly)
+    import gradio.route_utils as _ru_mod
+    if hasattr(_ru_mod, 'FileResponse'):
+        _ru_mod.FileResponse = _NoContentLengthFileResponse  # type: ignore[assignment]
+
+    import gradio.routes as _rt_mod
+    if hasattr(_rt_mod, 'FileResponse'):
+        _rt_mod.FileResponse = _NoContentLengthFileResponse  # type: ignore[assignment]
+
+    import gradio.static_server as _ss_mod
+    if hasattr(_ss_mod, 'FileResponse'):
+        _ss_mod.FileResponse = _NoContentLengthFileResponse  # type: ignore[assignment]
+except Exception:
+    pass  # Non-critical; app will work without this patch
+
 import logging
 import os
 from pathlib import Path
@@ -15,7 +85,8 @@ logger = logging.getLogger(__name__)
 
 # ─── Phase State ────────────────────────────────────────────────────
 
-_phase1_texts: list[str] = []  # English texts from Phase 1, passed to Phase 2
+_phase1_texts: list[str] = []    # English texts from Phase 1, passed to Phase 2
+_current_cards: list[dict] = []  # Full card data after Phase 2 (with media paths)
 
 
 # ─── Mock Card Data ────────────────────────────────────────────────
@@ -341,6 +412,10 @@ def generate_media_async(
             logger.error("Image generation failed: %s", e, exc_info=True)
             # Cards remain without images — user can retry
 
+    # Save cards for export (before final yield)
+    global _current_cards
+    _current_cards = [dict(c) for c in cards]
+
     # Final yield with 100%
     if not cards:
         yield generate_progress_html(0, "\u26a0\ufe0f No translations produced."), (
@@ -362,6 +437,58 @@ def generate_media_async(
         yield generate_progress_html(100, final_label), generate_cards_html(
             cards, include_image=include_images, include_audio=tts_generated, placeholder_back=False
         )
+
+
+def _handle_export_csv(
+    scenario: str,
+    cefr_level: str,
+    target_language: str,
+) -> str | None:
+    """Export current cards as a zipped CSV folder.
+
+    Returns the absolute path to the generated .zip file for Gradio DownloadButton.
+    Returns None if no cards to export or export failed.
+    """
+    if not _current_cards:
+        logger.warning("CSV export: no cards to export")
+        return None
+
+    try:
+        from core.types import CEFRLevel
+        from export.csv_export import export_csv_zip
+
+        cefr = CEFRLevel(cefr_level)
+        zip_path = export_csv_zip(_current_cards, scenario, cefr_level, target_language)
+        return zip_path
+    except Exception as e:
+        logger.error("CSV export failed: %s", e, exc_info=True)
+        return None
+
+
+def _handle_export_csv_for_anki(
+    scenario: str,
+    cefr_level: str,
+    target_language: str,
+) -> str | None:
+    """Export current cards as an Anki-compatible .apkg file via genanki.
+
+    Returns the absolute path to the generated .apkg file for Gradio DownloadButton.
+    Returns None if no cards to export or export failed.
+    """
+    if not _current_cards:
+        logger.warning("Anki .apkg export: no cards to export")
+        return None
+
+    try:
+        from core.types import CEFRLevel
+        from export.apkg_export import export_csv_for_anki
+
+        cefr = CEFRLevel(cefr_level)
+        zip_path = export_csv_for_anki(_current_cards, scenario, cefr_level, target_language)
+        return zip_path
+    except Exception as e:
+        logger.error("Anki CSV export failed: %s", e, exc_info=True)
+        return None
 
 
 if __name__ == "__main__":
