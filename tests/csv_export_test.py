@@ -76,9 +76,14 @@ class TestLanguageAbbrevMapping:
 
     def test_all_languages_mapped(self):
         expected = {
-            "Latvian": "LV", "Spanish": "ES", "French": "FR",
-            "German": "DE", "Polish": "PL", "Italian": "IT",
-            "Portuguese": "PT", "Finnish": "FI",
+            "Bulgarian": "BG", "Croatian": "HR", "Czech": "CS",
+            "Danish": "DA", "Dutch": "NL", "Estonian": "ET",
+            "Finnish": "FI", "French": "FR", "German": "DE",
+            "Greek": "EL", "Hungarian": "HU", "Irish": "GA",
+            "Italian": "IT", "Latvian": "LV", "Lithuanian": "LT",
+            "Maltese": "MT", "Polish": "PL", "Portuguese": "PT",
+            "Romanian": "RO", "Slovak": "SK", "Slovenian": "SL",
+            "Spanish": "ES", "Swedish": "SV",
         }
         assert _LANGUAGE_ABBREVS == expected
 
