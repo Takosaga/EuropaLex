@@ -147,7 +147,7 @@ def generate_text_async(
     cefr_level: str,
     batch_size: int,
 ):
-    """Phase 1: Generate English text only using Nemotron (no translation).
+    """Phase 1: Generate English text only using MiniCPM5-1B (no translation).
 
     Yields (progress_html, card_output_html) tuples.
     Cards show English text with dashed placeholder back side.
@@ -186,7 +186,7 @@ def generate_text_async(
         )
         return
 
-    # Generate English text via Nemotron
+    # Generate English text via MiniCPM5-1B
     try:
         yield generate_progress_html(20, "Preparing MiniCPM5-1B generation..."), ""
         texts = engine.generate(
