@@ -297,7 +297,7 @@ def build_ui() -> "gr.Blocks":
                     label="Download CSV", file_types=[".zip"], visible=False
                 )
                 export_apkg_file = gr.File(
-                    label="Download Anki Cards", file_types=[".zip"], visible=False
+                    label="Download Anki Cards", file_types=[".apkg"], visible=False
                 )
 
             gr.Column(scale=1)
