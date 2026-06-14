@@ -1,5 +1,8 @@
 """Tests for export/apkg_export.py — Direct genanki .apkg export."""
 
+import io
+import json
+import sqlite3
 import zipfile
 from pathlib import Path
 
@@ -14,6 +17,57 @@ from export.apkg_export import (
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _open_apkg_db(apkg_path: str) -> sqlite3.Connection:
+    """Open the collection.anki2 SQLite database from an .apkg file."""
+    with zipfile.ZipFile(apkg_path, 'r') as zf:
+        data = zf.read('collection.anki2')
+    db = sqlite3.connect(':memory:')
+    db.executescript(f"ATTACH DATABASE '{apkg_path}' AS zipfs;")
+    # Write bytes to memory DB via cursor
+    db.execute("CREATE TABLE IF NOT EXISTS dummy(x)")
+    db.commit()
+    # Use a simpler approach: write to temp file
+    import tempfile
+    fd, tmp = tempfile.mkstemp(suffix='.db')
+    try:
+        import os
+        os.write(fd, data)
+        os.close(fd)
+        mem_db = sqlite3.connect(f'file:{tmp}?mode=memory', uri=True)
+        real_db = sqlite3.connect(tmp)
+        mem_db.execute("ATTACH DATABASE ? AS real", (tmp,))
+        # Actually, let's just return a connection to the temp file and clean up later
+        real_db.close()
+        return sqlite3.connect(f'file:{tmp}?mode=rwc', uri=True)
+    except Exception:
+        pass
+    # Fallback: direct in-memory approach
+    mem = sqlite3.connect(':memory:')
+    mem.execute(f"CREATE TABLE data AS SELECT * FROM (SELECT '{apkg_path}' as p)")
+    # Better fallback: use raw bytes via a file-like wrapper
+    import tempfile as tf
+    fd2, tmp2 = tf.mkstemp(suffix='.db')
+    os.write(fd2, data)
+    os.close(fd2)
+    return sqlite3.connect(tmp2), tmp2
+
+
+def _get_db_from_apkg(apkg_path: str):
+    """Open the collection.anki2 SQLite database from an .apkg file.
+
+    Returns (connection, temp_path_or_None). Caller must close() the connection
+    and unlink the temp file if one was created.
+    """
+    with zipfile.ZipFile(apkg_path, 'r') as zf:
+        data = zf.read('collection.anki2')
+    import tempfile, os
+    fd, tmp = tempfile.mkstemp(suffix='.db')
+    os.write(fd, data)
+    os.close(fd)
+    db = sqlite3.connect(tmp)
+    return db, tmp
 
 
 @pytest.fixture
@@ -104,7 +158,7 @@ class TestExportApkg:
         assert Path(apkg_path).exists()
 
     def test_apkg_is_valid_zip(self, sample_cards):
-        """An .apkg file is a valid zip archive (genanki format)."""
+        """An .apkg file is a valid zip archive with collection.anki2 and media/."""
         apkg_path = export_csv_for_anki(
             cards=sample_cards,
             scenario="ordering coffee",
@@ -112,10 +166,9 @@ class TestExportApkg:
             target_language="Latvian",
         )
         with zipfile.ZipFile(apkg_path, 'r') as zf:
-            # Should contain notes.json and deck.json (genanki internals)
             names = zf.namelist()
-            assert any('notes' in n for n in names)
-            assert any('deck' in n for n in names)
+            assert any('collection.anki2' in n for n in names)
+            assert any('media' in n for n in names)
 
     def test_apkg_contains_media_files(self, sample_cards):
         """Media files are bundled into the .apkg archive."""
@@ -126,28 +179,35 @@ class TestExportApkg:
             target_language="Latvian",
         )
         with zipfile.ZipFile(apkg_path, 'r') as zf:
-            names = zf.namelist()
+            # genanki 0.13 stores media as numeric indices with a JSON mapping
+            media_json = json.loads(zf.read('media'))
+            media_names = list(media_json.values())
             # Card 0 has both audio and image
-            assert any('ordering_coffee_A2_LV_0.wav' in n for n in names)
-            assert any('ordering_coffee_A2_LV_0.png' in n for n in names)
+            assert any('ordering_coffee_A2_LV_0.wav' in n for n in media_names)
+            assert any('ordering_coffee_A2_LV_0.png' in n for n in media_names)
             # Card 1 has only image
-            assert any('ordering_coffee_A2_LV_1.png' in n for n in names)
+            assert any('ordering_coffee_A2_LV_1.png' in n for n in media_names)
             # Card 2 has only audio
-            assert any('ordering_coffee_A2_LV_2.wav' in n for n in names)
+            assert any('ordering_coffee_A2_LV_2.wav' in n for n in media_names)
 
     def test_apkg_note_count_matches_cards(self, sample_cards):
-        """One note per card — verify via notes.json content."""
+        """One note per card — verify via notes table in collection.anki2."""
         apkg_path = export_csv_for_anki(
             cards=sample_cards,
             scenario="ordering coffee",
             cefr_level="A2",
             target_language="Latvian",
         )
-        import json
-        with zipfile.ZipFile(apkg_path, 'r') as zf:
-            notes_data = json.loads(zf.read('notes.json'))
-            # notes.json format: {"notes": [...]}
-            assert len(notes_data['notes']) == 3
+        db, tmp = _get_db_from_apkg(apkg_path)
+        try:
+            cursor = db.cursor()
+            cursor.execute("SELECT COUNT(*) FROM notes")
+            count = cursor.fetchone()[0]
+            assert count == 3
+        finally:
+            db.close()
+            import os
+            os.unlink(tmp)
 
     def test_apkg_note_fields_correct(self, sample_cards):
         """Notes contain correct TargetText and EnglishText."""
@@ -157,26 +217,42 @@ class TestExportApkg:
             cefr_level="A2",
             target_language="Latvian",
         )
-        import json
-        with zipfile.ZipFile(apkg_path, 'r') as zf:
-            notes_data = json.loads(zf.read('notes.json'))
-            # First note fields: [TargetText, EnglishText, Image, Audio]
-            first_note_fields = notes_data['notes'][0]['fields']
-            assert "Me encanta comer frutas frescas." in first_note_fields[0]
-            assert "I love eating fresh fruits." in first_note_fields[1]
+        db, tmp = _get_db_from_apkg(apkg_path)
+        try:
+            cursor = db.cursor()
+            cursor.execute("SELECT flds FROM notes ORDER BY id LIMIT 1")
+            flds_raw = cursor.fetchone()[0]
+            # Fields are separated by \x1f (unit separator)
+            fields = flds_raw.split('\x1f')
+            assert len(fields) >= 2
+            assert "Me encanta comer frutas frescas." in fields[0]
+            assert "I love eating fresh fruits." in fields[1]
+        finally:
+            db.close()
+            import os
+            os.unlink(tmp)
 
     def test_apkg_deck_name(self, sample_cards):
-        """Deck name matches the DECK_NAME constant."""
+        """Deck name matches 'EuropaLex Flashcards'."""
         apkg_path = export_csv_for_anki(
             cards=sample_cards,
             scenario="ordering coffee",
             cefr_level="A2",
             target_language="Latvian",
         )
-        import json
-        with zipfile.ZipFile(apkg_path, 'r') as zf:
-            deck_data = json.loads(zf.read('deck.json'))
-            assert deck_data['name'] == "EuropaLex Flashcards"
+        db, tmp = _get_db_from_apkg(apkg_path)
+        try:
+            cursor = db.cursor()
+            cursor.execute("SELECT decks FROM col LIMIT 1")
+            decks_json = cursor.fetchone()[0]
+            decks = json.loads(decks_json)
+            # Find the EuropaLex Flashcards deck among all decks
+            found = any(d['name'] == 'EuropaLex Flashcards' for d in decks.values())
+            assert found, f"Expected 'EuropaLex Flashcards' deck, got: {list(decks.values())}"
+        finally:
+            db.close()
+            import os
+            os.unlink(tmp)
 
     def test_missing_media_skipped_gracefully(self, tmp_export_base):
         """No error when audio/image path is None or file doesn't exist."""
@@ -223,20 +299,37 @@ class TestExportApkg:
             cefr_level="A1",
             target_language="Spanish",
         )
-        import json
-        with zipfile.ZipFile(apkg_path, 'r') as zf:
-            notes_data = json.loads(zf.read('notes.json'))
-            assert len(notes_data['notes']) == 1
+        db, tmp = _get_db_from_apkg(apkg_path)
+        try:
+            cursor = db.cursor()
+            cursor.execute("SELECT COUNT(*) FROM notes")
+            count = cursor.fetchone()[0]
+            assert count == 1
+        finally:
+            db.close()
+            import os
+            os.unlink(tmp)
 
     def test_apkg_structure_has_deck_and_model(self, sample_cards):
-        """The .apkg contains both deck and model definitions."""
+        """The .apkg contains collection.anki2 with deck and model definitions."""
         apkg_path = export_csv_for_anki(
             cards=sample_cards,
             scenario="ordering coffee",
             cefr_level="A2",
             target_language="Latvian",
         )
-        with zipfile.ZipFile(apkg_path, 'r') as zf:
-            names = zf.namelist()
-            assert any('deck.json' in n for n in names)
-            assert any('model' in n for n in names)
+        db, tmp = _get_db_from_apkg(apkg_path)
+        try:
+            cursor = db.cursor()
+            # Check col table has decks and models columns
+            cursor.execute("SELECT decks, models FROM col LIMIT 1")
+            row = cursor.fetchone()
+            assert row is not None
+            decks = json.loads(row[0])
+            models = json.loads(row[1])
+            assert len(decks) >= 1
+            assert len(models) >= 1
+        finally:
+            db.close()
+            import os
+            os.unlink(tmp)
