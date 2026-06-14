@@ -1,6 +1,6 @@
 # Europa Lex
 
-AI-powered flashcard generator for European languages. Generates target-language translations, text-to-speech audio, and illustrative images — exports as an Anki-compatible CSV zip (with HTML-embedded media references) or a zipped CSV folder with flat media files.
+AI-powered flashcard generator for European languages. Generates target-language translations, text-to-speech audio, and illustrative images — exports as a proper `.apkg` file via genanki or a zipped CSV folder with flat media files.
 
 > **Note:** All commands and paths in this document are relative to the `EuropaLex/` project root. Assume you are already inside this directory.
 
@@ -99,14 +99,11 @@ uv run python -m models.download_models --output-dir ./my-models
 - Folder naming: `{scenario_slug}_{CEFR}_{LANG_ABBREV}` (e.g., `ordering_coffee_A2_LV`)
 - Media file naming: `{scenario_slug}_{CEFR}_{LANG_ABBREV}_{card_index}.{ext}` (e.g., `ordering_coffee_A2_LV_0.wav`, `ordering_coffee_A2_LV_1.png`)
 
-**Anki CSV export:** Click **Export Anki Cards** after Phase 2 completes. The app creates a `.zip` archive containing:
-- `cards.csv` — 2 columns: `Front` (HTML with translation + `<img>`/`<audio>` tags) and `Back` (English text)
-- `collection.media/` — media files (`.wav`, `.png`) referenced by relative paths in the HTML tags
-- Folder naming: `{scenario_slug}_{CEFR}_{LANG_ABBREV}` (e.g., `ordering_coffee_A2_LV`)
-- Media file naming: `{scenario_slug}_{CEFR}_{LANG_ABBREV}_{card_index}.{ext}` (e.g., `ordering_coffee_A2_LV_0.wav`)
-- Anki imports this via its native text-file import mechanism, resolving media paths automatically
-
-> **Note:** The "Sync to Anki" button has been removed. Use CSV export for all imports into Anki (Anki supports CSV import natively).
+**Anki `.apkg` export:** Click **Export Anki Cards** after Phase 2 completes. The app creates a proper `.apkg` file using genanki, containing:
+- `collection.anki2` — SQLite database with deck, model, and note definitions
+- `media/` — bundled media files (`.wav`, `.png`) referenced by the notes
+- Deck name: "EuropaLex Flashcards" with custom card styling (rounded images, centered layout)
+- Anki imports this directly via File → Import.
 
 ## Workflow
 
@@ -139,8 +136,8 @@ EuropaLex generates flashcards in two phases: English text first (Phase 1), then
 ### Export
 
 1. Once Phase 2 completes, click **Export CSV + Media** to download a `.zip` file containing the CSV and all media files (flat folder structure)
-2. Click **Export Anki Cards** to download an Anki-compatible `.zip` with HTML-embedded media references in a 2-column CSV
-3. Import into Anki via Anki's native text-file import feature (for Anki CSV export) or open the standard CSV zip for manual use
+2. Click **Export Anki Cards** to download a proper `.apkg` file with bundled media and custom card styling
+3. Import into Anki via File → Import
 
 ## Architecture
 
@@ -151,7 +148,7 @@ EuropaLex is organized into five main modules:
 | `core/` | Data types (`types.py`), text engines + EnginePool (`engine.py`), TTS (`audio_gen.py`), image gen (`image_gen.py`), sentence extraction & generation helpers (`text_gen.py`), Phase 2 translation orchestration (`pipeline.py`) |
 | `frontend/` | Gradio 6 UI: styled toggles (`widgets.py`), card rendering with two-phase layout (`cards.py`), custom CSS (`css/custom.css`) |
 | `models/` | Hugging Face Hub model downloader — fetches models at runtime, no git submodules |
-| `export/` | Anki-compatible CSV export with HTML media references (`csv_for_anki.py`), standard CSV zip export with flat media files (`csv_export.py`), Anki tunnel sync (unused) |
+| `export/` | Anki `.apkg` export via genanki (`apkg_export.py`), standard CSV zip export with flat media files (`csv_export.py`) |
 | `app.py` | Entry point — wires inputs to two-phase click handlers with progress tracking |
 
 ### Data Flow
@@ -169,7 +166,7 @@ User Input → [Gradio UI] → EnginePool (singleton) → MiniCPMTextEngine (Pha
 - **Types:** `core/types.py` provides Pydantic models (`CardData`, `CEFRLevel`, `ValidationError`, `TextResult`, `AudioResult`, `ImageResult`, `EngineConfig`) for type-safe boundaries. `TextResult.generated_texts` replaces the legacy `.translations`; `AudioResult.audio_paths` and `ImageResult.image_paths` are `list[str | None]` (never None at top level).
 - **Pipeline:** `core/pipeline.py` provides `generate_phase2()` — a generator function that yields `(progress_percent, phase_label, cards)` tuples for real-time UI updates. Extends this when adding new media types (TTS, images).
 - **Frontend:** `frontend/ui/cards.py` renders individual cards as HTML with conditional media elements; `generate_cards_html()` layouts them in a flex gallery with natural rotation offsets.
-- **Export:** `export/csv_for_anki.py` builds Anki-compatible CSV zips with HTML-embedded `<img>` and `<audio>` tags referencing `collection.media/`; `export/csv_export.py` creates zipped folders containing CSV + flat media files; `export/anki_tunnel.py` is unused.
+- **Export:** `export/apkg_export.py` builds proper `.apkg` files via genanki (SQLite-based collection.anki2, bundled media); `export/csv_export.py` creates zipped folders containing CSV + flat media files.
 
 ## Repository Structure
 
@@ -205,7 +202,7 @@ EuropaLex/
 │   └── settings.yaml       # App settings, word lists
 ├── export/                 # Export formats
 │   ├── __init__.py
-│   ├── csv_for_anki.py     # Anki-compatible CSV export (2-column Front/Back, HTML-embedded media, collection.media/)
+│   ├── apkg_export.py      # Anki `.apkg` export via genanki (SQLite collection.anki2, bundled media)
 │   ├── csv_export.py       # Standard CSV export utility (flat folder structure)
 │   └── anki_tunnel.py      # MCP tunnel sync for live Anki import
 ├── docs/                   # Design specs and implementation plans
