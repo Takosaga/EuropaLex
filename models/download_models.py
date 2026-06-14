@@ -2,13 +2,16 @@
 
 Usage:
     python -m models.download_models                  # Download all models
-    python -m models.download_models minicpm tiny_aya  # Download specific models
+    python -m models.download_models minicpm tiny_aya flux  # Download specific models
 
 Models:
     minicpm         — MiniCPM5-1B Q8_0 (llama-cpp-python)
     tiny_aya        — tiny-aya-water Q4_K_M (llama-cpp-python)
-    omnivoice       — OmniVoice Q8_0 TTS (omnivoice.cpp, requires base + tokenizer)
     flux            — FLUX.2-klein 4B image gen (diffusers)
+
+Note: OmniVoice TTS is loaded at runtime via
+    omnivoice.OmniVoice.from_pretrained("k2-fsa/OmniVoice")
+and cached in ~/.cache/huggingface/ — no manual download needed.
 """
 
 import argparse
@@ -27,11 +30,6 @@ MODELS = {
         "repo": "CohereLabs/tiny-aya-water-GGUF",
         "files": ["tiny-aya-water-q4_k_m.gguf"],
         "description": "tiny-aya-water q4_k_m translation (llama-cpp-python)",
-    },
-    "omnivoice": {
-        "repo": "Serveurperso/OmniVoice-GGUF",
-        "files": ["omnivoice-base-Q8_0.gguf", "omnivoice-tokenizer-Q8_0.gguf"],
-        "description": "OmniVoice Q8_0 TTS (base + tokenizer, omnivoice.cpp)",
     },
     "flux": {
         "repo": "black-forest-labs/FLUX.2-klein-4B",
@@ -64,6 +62,23 @@ def download_model(name: str, target_dir: Path) -> None:
         resume_download=True,
     )
     print(f"  ✓ Done — {output_dir}\n")
+
+
+def download_all(output_dir: Path | str = ".local/models") -> None:
+    """Download all models from HF Hub. Convenience wrapper around download_model."""
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    errors = []
+    for name in MODELS:
+        try:
+            download_model(name, output_dir)
+        except Exception as e:
+            errors.append((name, str(e)))
+            print(f"  ✗ {name} failed: {e}\n")
+
+    if errors:
+        raise RuntimeError(f"{len(errors)} model(s) failed to download: {[n for n, _ in errors]}")
 
 
 def main():
