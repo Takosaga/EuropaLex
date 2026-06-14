@@ -470,13 +470,13 @@ def _handle_export_csv_for_anki(
     cefr_level: str,
     target_language: str,
 ) -> str | None:
-    """Export current cards as an Anki-compatible CSV zip.
+    """Export current cards as an Anki-compatible .apkg file via genanki.
 
-    Returns the absolute path to the generated .zip file for Gradio DownloadButton.
+    Returns the absolute path to the generated .apkg file for Gradio DownloadButton.
     Returns None if no cards to export or export failed.
     """
     if not _current_cards:
-        logger.warning("Anki CSV export: no cards to export")
+        logger.warning("Anki .apkg export: no cards to export")
         return None
 
     try:

@@ -446,12 +446,12 @@ def build_ui() -> "gr.Blocks":
             outputs=[progress_html, export_file, export_file],
         )
 
-        # ─── Anki CSV Export Event Wiring ─────────────────────────────
+        # ─── Anki .apkg Export Event Wiring ─────────────────────────────
 
         def _handle_export_csv_for_anki_event(scenario: str, cefr_level: str, target_language: str):
-            """Export current cards as Anki-compatible CSV zip.
+            """Export current cards as an Anki-compatible .apkg file via genanki.
 
-            Sets the generated .zip file path as the value of export_apkg_file component,
+            Sets the generated .apkg file path as the value of export_apkg_file component,
             which Gradio renders as a downloadable file link.
             """
             from frontend.ui.cards import generate_progress_html
@@ -467,10 +467,10 @@ def build_ui() -> "gr.Blocks":
                 return generate_progress_html(100, "Export complete! Click the file below to download."), zip_path, gr.File(visible=True)
             except Exception as e:
                 logger = logging.getLogger(__name__)
-                logger.error("Anki CSV export failed: %s", e, exc_info=True)
+                logger.error("Anki .apkg export failed: %s", e, exc_info=True)
                 return generate_progress_html(0, f"\u26a0\ufe0f Export failed: {e}"), None, gr.File(visible=False)
 
-        # Anki CSV Export button click — generates zip and shows it in gr.File for download
+        # Anki .apkg Export button click — generates apkg and shows it in gr.File for download
         export_apkg_btn.click(
             fn=_handle_export_csv_for_anki_event,
             inputs=[scenario_input, cefr_dropdown, language_dropdown],
