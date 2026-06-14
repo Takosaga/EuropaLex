@@ -117,58 +117,6 @@ _phase1_texts: list[str] = []    # English texts from Phase 1, passed to Phase 2
 _current_cards: list[dict] = []  # Full card data after Phase 2 (with media paths)
 
 
-# ─── Mock Card Data ────────────────────────────────────────────────
-
-MOCK_CARDS = {
-    "A0": [
-        {"front": "Es esmu bērns.", "back": "I am a child."},
-        {"front": "Šī ir māja.", "back": "This is a house."},
-        {"front": "Es mīlu savu ģimeni.", "back": "I love my family."},
-    ],
-    "A1": [
-        {"front": "Labrīt!", "back": "Good morning!"},
-        {"front": "Paldies.", "back": "Thank you."},
-        {"front": "Vai tu runā angļu valodu?", "back": "Do you speak English?"},
-    ],
-    "A2": [
-        {"front": "Es strādāju skolā.", "back": "I work at a school."},
-        {"front": "Kas ir laika grāmata?", "back": "What is a calendar?"},
-        {"front": "Es eju uz veikalu.", "back": "I am going to the store."},
-    ],
-    "B1": [
-        {"front": "Es gribētu izdzert kafiju.", "back": "I would like to drink coffee."},
-        {"front": "Vai jūs varat man palīdzēt?", "back": "Can you help me?"},
-        {"front": "Cik daudz maksā šis?", "back": "How much does this cost?"},
-    ],
-    "B2": [
-        {"front": "Es uzskatu, ka tas ir pareizi.", "back": "I believe that is correct."},
-        {"front": "Vai jūs varat izskaidrot iemeslu?", "back": "Can you explain the reason?"},
-        {"front": "Šis projekts prasa vairāk laika.", "back": "This project requires more time."},
-    ],
-    "C1": [
-        {"front": "Es nevaru atturēties no domas, ka...", "back": "I can't help but think that..."},
-        {"front": "Tas ir acīmredzami, taču...", "back": "It is obvious, however..."},
-        {"front": "Vai jūs dalāties manā viedoklī?", "back": "Do you share my opinion?"},
-    ],
-    "C2": [
-        {"front": "Es apgūstu latviešu valodu ar lielu aizrautību.", "back": "I am mastering the Latvian language with great enthusiasm."},
-        {"front": "Šis ir sarežģīts jautājums.", "back": "This is a complex question."},
-        {"front": "Es saprotu katru vārdu.", "back": "I understand every word."},
-    ],
-}
-
-
-def transform_mock_cards(raw_cards: list[dict]) -> list[dict]:
-    """Transform legacy mock card format to two-phase format.
-
-    Legacy format: {"front": <Latvian>, "back": <English>}
-    New format:    {"text": <English>, "translation": <Latvian>}
-
-    For text-only phase, 'text' is displayed with placeholder back.
-    After media generation, 'translation' is populated.
-    """
-    return [{"text": c["back"], "translation": c["front"]} for c in raw_cards]
-
 
 def generate_text_async(
     scenario: str,
