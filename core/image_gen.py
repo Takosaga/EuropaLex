@@ -69,7 +69,7 @@ class ImageGenEngine:
             try:
                 images = self._pipeline(
                     prompt=prompt,
-                    num_inference_steps=10,
+                    num_inference_steps=4,
                     guidance_scale=1.0,
                     width=240,
                     height=160,
