@@ -6,7 +6,7 @@ Guidelines for AI coding agents working on this codebase. Follow these conventio
 
 ## Project Overview
 
-EuropaLex generates Anki-compatible flashcards for European languages using local AI models. It takes user input (text or scenario description), generates target-language translations at a selected CEFR level, and enriches cards with text-to-speech audio and illustrative images. Cards export as `.apkg` or `.csv`.
+EuropaLex generates Anki-compatible flashcards for European languages using local AI models. It takes user input (text or scenario description), generates target-language translations at a selected CEFR level, and enriches cards with text-to-speech audio and illustrative images. Cards export as a proper `.apkg` file via genanki or a zipped CSV folder with flat media files.
 
 **Tech Stack:**
 - Python 3.12+
@@ -35,7 +35,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 - `core/` — Pydantic types (`types.py`), inference engines + EnginePool singleton (`engine.py`), sentence extraction & generation helpers (`text_gen.py`), Phase 2 translation orchestration (`pipeline.py`)
 - `frontend/` — Gradio UI: widgets, card rendering, custom CSS
 - `models/` — HF Hub model downloader
-- `export/` — .apkg generator, CSV export, Anki tunnel sync
+- `export/` — Anki `.apkg` export via genanki (`apkg_export.py`), CSV zip export with flat media files (`csv_export.py`)
 - `app.py` — entry point, wires everything together (Phase 1 generates English text via MiniCPM; Phase 2 translates via tiny-aya)
 
 ## Code Structure
@@ -48,7 +48,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 | `core/text_gen.py` | Sentence extraction (`extract_sentences`) and LLM generation with retry loop (`generate_sentences`) | Import from other modules for text generation logic |
 | `frontend/` | Render UI, handle Gradio events, style cards | Implement inference logic or export formats |
 | `models/` | Download and locate models | Run inference or generate content |
-| `export/` | Generate .apkg, .csv, communicate with Anki tunnel | Import from `frontend/` |
+| `export/` | Generate Anki `.apkg` package (`apkg_export.py`) and standard CSV zip (`csv_export.py`) with media files | Import from `frontend/` |
 | `app.py` | Wire modules together, define Gradio click handlers | Contain business logic (delegate to `core/`) |
 
 ### File Organization Rules
@@ -69,7 +69,7 @@ EuropaLex generates Anki-compatible flashcards for European languages using loca
 
 ### Naming
 
-- **Modules (lowercase, underscore):** `apkg_generator`, `anki_tunnel`, `download_models`
+- **Modules (lowercase, underscore):** `apkg_export`, `csv_export`, `anki_tunnel`, `download_models`
 - **Classes (PascalCase):** `CardData`, `CEFRLevel`, `MiniCPMTextEngine`, `LlamaCppTextEngine`, `TTSEngine`, `ImageGenEngine`, `EnginePool`, `ValidationError`
 - **Functions/variables (snake_case):** `render_card_html`, `generate_cards_html`, `batch_size`
 - **Constants (UPPER_SNAKE_CASE):** None currently needed; keep config in YAML
@@ -138,7 +138,10 @@ The UI operates in two distinct phases:
 4. User clicks "Generate Cards"
 5. `app.py` calls the media generation handler → tiny-aya-water (`LlamaCppTextEngine`) translates, then OmniVoice (`TTSEngine`) generates TTS audio with the selected voice via voice design mode
 6. Cards update: translation appears on the front, image and audio controls appear alongside it; English text moves to the back
-6. Both buttons hide during generation, reappear when done
+7. Both buttons hide during generation, reappear when done
+
+**Regenerating Cards After Phase 2:**
+After Phase 2 completes, changing any Phase 2 parameter (target language, audio toggle, image toggle, or voice dropdown) automatically restores the **Generate Cards** button as visible and interactive, enabling regeneration without re-running Phase 1. This is implemented via `_restore_generate_cards_button()` chained as `.then()` handlers on four event chains: `language_dropdown.change`, `audio_toggle.change`, `images_toggle.change`, and `voice_dropdown.change`.
 
 **Rules:**
 - Never skip Phase 1. Even if media-only mode seems useful, text must be generated first.
@@ -254,6 +257,8 @@ uv run pytest tests/ -v
 | `engine_test.py` | MiniCPMTextEngine, LlamaCppTextEngine, EnginePool |
 | `pipeline_test.py` | Phase 2 orchestration |
 | `text_gen_test.py` | Sentence extraction + text generation |
+| `csv_export_test.py` | CSV zip export (folder naming, CSV columns, media copying, zip creation) |
+| `apkg_export_test.py` | Anki `.apkg` export via genanki (SQLite-based collection.anki2, media JSON mapping, deck/model definitions) |
 
 ### Writing Tests
 
@@ -320,6 +325,16 @@ The disabled/enabled toggle states are managed via CSS injection (`#phase-css`) 
 - Include them in `_reset_to_idle()` outputs (including `language_dropdown` which triggers reset on change)
 - Include them in `_enable_phase2()` outputs
 
+### 2b. Parameter change event chains require `.then(_restore_generate_cards_button)`
+
+After Phase 2 completes, four event chains use `_restore_generate_cards_button()` as a chained `.then()` handler to restore the Generate Cards button when parameters change:
+- `language_dropdown.change(_reset_to_idle).then(_restore_generate_cards_button)`
+- `audio_toggle.change(_on_audio_toggle_change).then(_restore_generate_cards_button)`
+- `images_toggle.change(lambda: (...)).` (inline lambda restores button)
+- `voice_dropdown.change(lambda: (...)).` (inline lambda restores button)
+
+If you add a new phase-2 control that affects card generation, wire it with the same pattern. The helper returns `(gr.Button(visible=True, interactive=True), gr.Button(visible=True, interactive=False))` for `[generate_cards_btn, export_btn]`.
+
 ### 3. Gradio generator functions must yield tuples
 
 When a click handler produces multiple outputs (e.g., progress bar + card gallery), it must be a generator that yields tuples matching the output order:
@@ -353,15 +368,29 @@ _phase1_texts = []
 # ... use _current_texts for processing ...
 ```
 
-### 7. Voice dropdown visibility is phase-dependent
+### 7. Export button outputs must be included in state transitions
+
+Both `_enable_phase2()` and `_reset_to_idle()` return tuples that map to Gradio output component order. There are two export buttons (`export_csv_btn`, `export_apkg_btn`) and two file download components (`export_file`, `export_apkg_file`). If you add new phase-dependent controls (additional export buttons, file download components), include them in both functions' return tuples AND in all `.then()` / `.change()` calls that reference these functions. Missing an output causes `ValueError: didn't return enough output values`. The helper `_on_media_generation_complete()` must enable **both** export buttons and clear **both** file components on completion.
+
+### 8. Export media file naming convention
+
+Media files exported via `csv_export.py` follow the pattern `{scenario_slug}_{CEFR}_{LANG_ABBREV}_{card_index}.{ext}` (e.g., `ordering_coffee_A2_LV_0.wav`). Files are placed in a flat folder alongside `cards.csv` — no `audio/` or `images/` subfolders. Language abbreviations use ISO 639-1 codes without periods (LV, ES, FR, DE, PL, IT, PT, FI). CSV `audio_filename` and `image_filename` columns contain just the filename string (not a path).
+
+Anki export via `apkg_export.py` uses genanki to produce a proper `.apkg` file containing an SQLite-based `collection.anki2` database and bundled media files. Anki imports this directly via File → Import.
+
+### 9. Voice dropdown visibility is phase-dependent
 
 The voice dropdown starts hidden (`visible = False`) and only becomes visible when the Audio toggle is ON (via `_enable_language_dropdown_on_audio`). It must be included in `_reset_to_idle()` outputs alongside toggles and buttons, and its `elem_id` must be targeted by disabled CSS. Do not assume it's always visible.
 
-### 8. LLM output may not match expected count
+### 10. LLM output may not match expected count
 
 Both `MiniCPMTextEngine.generate()` and `LlamaCppTextEngine.generate()` validate output count against `batch_size` and retry automatically (max 3 attempts). Do **not** slice output with `[:batch_size]` as a band-aid — the engines already handle this via retry loops. If you bypass an engine and call an LLM directly, you must implement the same validation logic.
 
-### 9. Gradio Blocks context and return value
+### 11. `_current_cards` persists for export after Phase 2
+
+`_current_cards` is a module-level global in `app.py` that stores the full card data (including media paths) after Phase 2 completes. It is set by `generate_media_async()` before the final yield and read by `_handle_export_csv()`, `_handle_export_csv_for_anki()`, and their event handlers. Do not clear it between Phase 2 calls — it enables all export formats after generation.
+
+### 12. Gradio Blocks context and return value
 
 When building UI in `frontend/ui/widgets.py:build_ui()`, all widget creation and event wiring **must** be wrapped in `with gr.Blocks() as demo:` — Gradio requires all widgets and their event handlers to be inside a Blocks context. The function must **return `demo`** (the context variable), not create a fresh empty `gr.Blocks()` instance. Creating widgets inside an implicit context but returning a brand new empty `Blocks` object causes Gradio's exit handler to fail when reconciling widget state.
 
@@ -379,7 +408,7 @@ def build_ui():
         gr.Button("Click me")
     return grBlocks()  # ❌ Gradio exit handler fails
 
-### 10. Gradio generator event handlers: `yield` not `yield from`
+### 12. Gradio generator event handlers: `yield` not `yield from`
 
 Gradio's generator-based event handlers expect a **single yield** that produces a tuple matching the number of output components:
 

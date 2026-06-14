@@ -2,6 +2,29 @@
 
 from pathlib import Path
 
+# ─── Patch Starlette FileResponse to skip Content-Length ─────────────
+# Prevents h11 "Too little data for declared Content-Length" errors during tests.
+# Mirrors the patch in app.py that applies at server startup.
+try:
+    from starlette.responses import FileResponse as _FileResponseBase
+    import starlette.responses as _sr_mod
+
+    class _NoContentLengthFileResponse(_FileResponseBase):
+        """FileResponse that never sets Content-Length to avoid h11 bugs."""
+
+        def set_stat_headers(self, stat_result):
+            """Override to skip setting Content-Length (keeps last-modified and etag)."""
+            last_modified = _sr_mod.formatdate(stat_result.st_mtime, usegmt=True)
+            etag_base = str(stat_result.st_mtime) + "-" + str(stat_result.st_size)
+            import hashlib
+            etag = '"' + hashlib.md5(etag_base.encode(), usedforsecurity=False).hexdigest() + '"'
+            self.headers.setdefault("last-modified", last_modified)
+            self.headers.setdefault("etag", etag)
+
+    _sr_mod.FileResponse = _NoContentLengthFileResponse  # type: ignore[assignment]
+except Exception:
+    pass  # Non-critical for tests
+
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
