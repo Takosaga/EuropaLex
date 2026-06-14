@@ -481,7 +481,7 @@ def _handle_export_csv_for_anki(
 
     try:
         from core.types import CEFRLevel
-        from export.csv_for_anki import export_csv_for_anki
+        from export.apkg_export import export_csv_for_anki
 
         cefr = CEFRLevel(cefr_level)
         zip_path = export_csv_for_anki(_current_cards, scenario, cefr_level, target_language)
