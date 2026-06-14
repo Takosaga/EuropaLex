@@ -260,7 +260,12 @@ def build_ui() -> "gr.Blocks":
                 with gr.Row():
                     language_dropdown = gr.Dropdown(
                         label="Target Language",
-                        choices=["Latvian", "Spanish", "French", "German", "Polish", "Italian", "Portuguese", "Finnish"],
+                        choices=[
+                            "Bulgarian", "Croatian", "Czech", "Danish", "Dutch", "Estonian",
+                            "Finnish", "French", "German", "Greek", "Hungarian", "Irish",
+                            "Italian", "Latvian", "Lithuanian", "Maltese", "Polish",
+                            "Portuguese", "Romanian", "Slovak", "Slovenian", "Spanish", "Swedish",
+                        ],
                         value="Latvian",
                         elem_id="language-dropdown",
                     )
