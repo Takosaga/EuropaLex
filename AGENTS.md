@@ -256,6 +256,7 @@ uv run pytest tests/ -v
 | `text_gen_test.py` | Sentence extraction + text generation |
 | `csv_export_test.py` | CSV zip export (folder naming, CSV columns, media copying, zip creation) |
 | `apkg_export_test.py` | Anki `.apkg` export via genanki (SQLite-based collection.anki2, media JSON mapping, deck/model definitions) |
+| `file_response_patch_test.py` | File response patching tests |
 
 ### Writing Tests
 
