@@ -7,12 +7,8 @@ from pathlib import Path
 import pytest
 
 # Import functions under test
-from export.csv_export import (
-    _LANGUAGE_ABBREVS,
-    _get_language_abbrev,
-    _sanitize_folder_name,
-    export_csv_zip,
-)
+from export.csv_export import export_csv_zip
+from export._constants import _LANGUAGE_ABBREVS, get_language_abbrev as _get_language_abbrev, sanitize_folder_name as _sanitize_folder_name
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
