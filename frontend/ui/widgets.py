@@ -219,9 +219,6 @@ def build_ui() -> "gr.Blocks":
 
     # ─── CSS Block ────────────────────────────────────────────────
     with gr.Blocks() as demo:
-        gr.HTML("""<div id="europalex-styles" style="display:none;">
-        </div>""")
-
         with gr.Row():
             gr.Column(scale=1)
             with gr.Column(scale=3, elem_id="app-card"):

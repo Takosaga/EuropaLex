@@ -6,8 +6,6 @@ from pathlib import Path
 # Project root for resolving relative paths.
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-import re
-
 # ISO 639-1 language abbreviation mapping — kept in sync with all export targets.
 _LANGUAGE_ABBREVS: dict[str, str] = {
     "Bulgarian": "BG",
