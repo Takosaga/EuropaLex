@@ -8,7 +8,6 @@ Produces: .local/models/output/export/{scenario_slug}_{CEFR}_{LANG}.apkg
 """
 
 import csv
-import os
 import re
 import random
 import shutil
@@ -286,16 +285,16 @@ def export_csv_for_anki(
         # Build image field with bare filename
         img_field = ""
         if img_fn:
-            img_path = os.path.join(media_dir, img_fn)
-            if os.path.exists(img_path):
+            img_path = media_dir / img_fn
+            if img_path.exists():
                 img_field = f'<img src="{img_fn}">'
                 media_files.append(img_path)
 
         # Build audio field with bare filename
         aud_field = ""
         if aud_fn:
-            aud_path = os.path.join(media_dir, aud_fn)
-            if os.path.exists(aud_path):
+            aud_path = media_dir / aud_fn
+            if aud_path.exists():
                 aud_field = f"[sound:{aud_fn}]"
                 media_files.append(aud_path)
 
