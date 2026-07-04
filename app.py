@@ -137,7 +137,7 @@ logger = logging.getLogger(__name__)
 # ─── ZeroGPU support for HF Spaces ──────────────────────
 try:
     import spaces
-    def gpu(fn): return spaces.GPU(duration=120)(fn)
+    def gpu(fn): return spaces.GPU(duration=600)(fn)
 except ImportError:
     def gpu(fn): return fn  # no-op locally
 
@@ -190,13 +190,26 @@ def generate_text_async(
     """
     # Load config and get engine
     try:
-        from core.engine import EnginePool, MiniCPMTextEngine
+        from core.engine import EnginePool, MiniCPMTextEngine, LlamaCppTextEngine, TTSEngine
         from core.types import CEFRLevel, EngineConfig
         from frontend.ui.cards import generate_progress_html
 
         config = EngineConfig.from_settings_yaml()
         pool = EnginePool.get(config)
-        engine = pool.get_english_engine()
+
+        # Pre-load all Phase 1+2 engines in one GPU session to minimize
+        # ZeroGPU proxy token refreshes on HF Spaces.
+        # ponytail: text engines are small (~3GB total) vs image model (~8GB);
+        # load them first, unload after Phase 1, then only load image engine later.
+        print("[ENGINE] Pre-loading translation engine...", flush=True)
+        pool.get_translation_engine()
+        print("[ENGINE] Pre-loading TTS engine...", flush=True)
+        pool.get_tts_engine()
+
+        # Now unload text engines — Phase 2 only needs image engine
+        print("[ENGINE] Unloading translation + TTS engines to free VRAM...", flush=True)
+        pool._unload_translation()
+        pool._unload_tts()
 
         cefr = CEFRLevel(cefr_level)
     except FileNotFoundError as e:
@@ -224,6 +237,7 @@ def generate_text_async(
     # Generate English text via MiniCPM5-1B
     try:
         yield generate_progress_html(20, "Preparing MiniCPM5-1B generation..."), ""
+        engine = pool.get_english_engine()
         texts = engine.generate(
             texts=[],  # empty = generation mode (not translation)
             scenario=scenario,
@@ -354,7 +368,7 @@ def generate_media_async(
 
     yield generate_progress_html(10, "Preparing translation engine..."), ""
 
-    # Get the translation engine (lazy-loads tiny-aya)
+    # Get the translation engine (pre-loaded above in this GPU session)
     try:
         from core.engine import LlamaCppTextEngine
         translation_engine = pool.get_translation_engine()
