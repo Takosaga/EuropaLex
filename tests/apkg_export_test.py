@@ -9,12 +9,8 @@ from pathlib import Path
 import pytest
 
 # Import functions under test — will fail until module exists
-from export.apkg_export import (
-    _LANGUAGE_ABBREVS,
-    _get_language_abbrev,
-    _sanitize_folder_name,
-    export_csv_for_anki,
-)
+from export.apkg_export import export_csv_for_anki
+from export._constants import _LANGUAGE_ABBREVS, get_language_abbrev as _get_language_abbrev, sanitize_folder_name as _sanitize_folder_name
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -120,12 +116,9 @@ class TestLanguageAbbrevMapping:
     """Tests for _get_language_abbreviation helper."""
 
     def test_all_languages_mapped(self):
-        expected = {
-            "Latvian": "LV", "Spanish": "ES", "French": "FR",
-            "German": "DE", "Polish": "PL", "Italian": "IT",
-            "Portuguese": "PT", "Finnish": "FI",
-        }
-        assert _LANGUAGE_ABBREVS == expected
+        assert _LANGUAGE_ABBREVS["Latvian"] == "LV"
+        assert _LANGUAGE_ABBREVS["Spanish"] == "ES"
+        assert len(_LANGUAGE_ABBREVS) == 23
 
     def test_invalid_language_raises(self):
         with pytest.raises(ValueError, match="Unknown language"):

@@ -8,7 +8,6 @@ Produces: .local/models/output/export/{scenario_slug}_{CEFR}_{LANG}.apkg
 """
 
 import csv
-import os
 import re
 import random
 import shutil
@@ -16,56 +15,10 @@ from pathlib import Path
 
 import genanki
 
-# ISO 639-1 language abbreviation mapping — mirrors csv_export.py exactly
-_LANGUAGE_ABBREVS: dict[str, str] = {
-    "Latvian": "LV",
-    "Spanish": "ES",
-    "French": "FR",
-    "German": "DE",
-    "Polish": "PL",
-    "Italian": "IT",
-    "Portuguese": "PT",
-    "Finnish": "FI",
-}
-
-# Project root for resolving relative paths — mirrors csv_export.py
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+from export._constants import _PROJECT_ROOT, get_language_abbrev, sanitize_folder_name
 
 
-def _sanitize_folder_name(scenario: str) -> str:
-    """Convert scenario text to a filesystem-safe folder name slug.
 
-    Args:
-        scenario: Free-form scenario/topic string from the user.
-
-    Returns:
-        Sanitized slug suitable for use as a directory name.
-    """
-    slug = scenario.strip().lower()
-    slug = re.sub(r'[^a-z0-9\s_]', '', slug)   # remove special chars
-    slug = re.sub(r'\s+', '_', slug)             # spaces → underscores
-    slug = re.sub(r'_+', '_', slug)              # collapse multiple underscores
-    return slug.strip('_')
-
-
-def _get_language_abbrev(language: str) -> str:
-    """Return the ISO 639-1 abbreviation for a language name.
-
-    Args:
-        language: Language name (e.g., 'Latvian', 'Spanish').
-
-    Returns:
-        Two-letter ISO 639-1 code.
-
-    Raises:
-        ValueError: If the language is not in the mapping.
-    """
-    if language not in _LANGUAGE_ABBREVS:
-        raise ValueError(
-            f"Unknown language '{language}'. "
-            f"Supported: {', '.join(sorted(_LANGUAGE_ABBREVS.keys()))}"
-        )
-    return _LANGUAGE_ABBREVS[language]
 
 
 def _copy_media_file(
@@ -235,8 +188,8 @@ def export_csv_for_anki(
     if not cards:
         raise ValueError("No cards provided for Anki export")
 
-    lang_abbrev = _get_language_abbrev(target_language)
-    scenario_slug = _sanitize_folder_name(scenario)
+    lang_abbrev = get_language_abbrev(target_language)
+    scenario_slug = sanitize_folder_name(scenario)
     folder_name = f"{scenario_slug}_{cefr_level}_{lang_abbrev}"
 
     # Resolve output directory (same pattern as csv_export.py)
@@ -332,16 +285,16 @@ def export_csv_for_anki(
         # Build image field with bare filename
         img_field = ""
         if img_fn:
-            img_path = os.path.join(media_dir, img_fn)
-            if os.path.exists(img_path):
+            img_path = media_dir / img_fn
+            if img_path.exists():
                 img_field = f'<img src="{img_fn}">'
                 media_files.append(img_path)
 
         # Build audio field with bare filename
         aud_field = ""
         if aud_fn:
-            aud_path = os.path.join(media_dir, aud_fn)
-            if os.path.exists(aud_path):
+            aud_path = media_dir / aud_fn
+            if aud_path.exists():
                 aud_field = f"[sound:{aud_fn}]"
                 media_files.append(aud_path)
 
