@@ -327,8 +327,8 @@ def build_ui() -> "gr.Blocks":
             import sys
             logger = logging.getLogger(__name__)
             
-            # Use __main__ if app isn't in sys.modules (running as script vs imported)
-            _app_module = sys.modules.get('app', sys.modules['__main__'])
+            # Always use __main__ — Gradio imports app as a module but runs it as __main__
+            _app_module = sys.modules['__main__']
             
             phase1_count = len(_app_module._phase1_texts) if hasattr(_app_module, '_phase1_texts') else 0
             print(f"[DEBUG PHASE2] _phase1_texts has {phase1_count} items. Module: {id(_app_module)}, __main__: {id(sys.modules['__main__'])}, 'app' in modules: {'app' in sys.modules}", flush=True)
