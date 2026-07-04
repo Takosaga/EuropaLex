@@ -51,9 +51,8 @@ class CEFRLevel(str, Enum):
     def description(self) -> str:
         """Return the CEFR linguistic guidance for prompt generation.
 
-        Returns guidance on sentence length, grammar complexity, and vocabulary
-        range for the given proficiency level — without topic constraints.
-        Topics should be provided separately via a free-form description.
+        Used at runtime by text_gen.py to build LLM system prompts — not dead code
+        despite duplicating docstrings; called as {cefr_level.description()}.
         """
         descs = {
             CEFRLevel.A1: (

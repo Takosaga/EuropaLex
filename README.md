@@ -1,15 +1,20 @@
+---
+title: EuropaLex - EU Language Learning
+emoji: 🇪🇺
+colorFrom: blue
+colorTo: yellow
+sdk: gradio
+sdk_version: 6.19.0
+python_version: '3.13'
+app_file: app.py
+pinned: false
+---
+
 # Europa Lex
 
 AI-powered flashcard generator for European languages. Generates target-language translations, text-to-speech audio, and illustrative images — exports as a proper `.apkg` file via genanki or a zipped CSV folder with flat media files.
 
 > **Note:** All commands and paths in this document are relative to the `EuropaLex/` project root. Assume you are already inside this directory.
-
-## Hackathon Criteria
-
-- **Off-Brand** — Custom CSS pushes past the default Gradio look; styled card widgets resembling physical flashcards
-- **Llama Champion** — Model runs through llama.cpp runtime locally
-- **Off the Grid** — No cloud APIs, all inference on local models or Modal-hosted endpoints
-- **Sharing is Caring** — Cards exportable as `.apkg`/`.csv`; card datasets shareable via Hugging Face Hub
 
 ## Setup
 
@@ -207,11 +212,19 @@ EuropaLex/
 │       ├── specs/          # Design specification documents
 │       └── plans/          # Implementation plans
 ├── tests/                  # Test suite (pytest-discoverable)
-│   ├── smoke_test.py       # Integration test — module imports, app construction
-│   ├── count_enforcement_test.py  # TextResult.validate_and_parse() testing
-│   ├── extract_sentences_test.py  # core.text_gen.extract_sentences() testing
-│   ├── progression_test.py      # _progress_pct() helper testing
-│   └── translation_retry_test.py# LlamaCppTextEngine retry loop testing
+│   ├── apkg_export_test.py   # Anki .apkg export via genanki
+│   ├── app_test.py           # App async generators and helper functions
+│   ├── audio_gen_test.py     # TTSEngine (TTS audio generation)
+│   ├── cards_test.py         # Card HTML rendering functions
+│   ├── conftest.py           # Shared fixtures (mock data, paths, temp dirs)
+│   ├── csv_export_test.py    # CSV zip export (folder naming, CSV columns, media copying, zip creation)
+│   ├── engine_test.py        # MiniCPMTextEngine, LlamaCppTextEngine, EnginePool
+│   ├── file_response_patch_test.py  # File response patching tests
+│   ├── image_gen_test.py     # ImageGenEngine (image generation)
+│   ├── pipeline_test.py      # Phase 2 orchestration
+│   ├── smoke_test.py         # Integration test — module imports, app construction
+│   ├── text_gen_test.py      # Sentence extraction + text generation
+│   └── widgets_test.py       # Widget creation and UI state helpers
 ```
 
 ## CEFR Levels
@@ -220,3 +233,11 @@ EuropaLex/
 
 - **A0:** Uses curated common words list (no text generation model needed)
 - **A1–C2:** MiniCPM5-1B generates English sentences at the selected level in Phase 1; tiny-aya-water translates them in Phase 2
+
+## Development Conventions
+
+This project follows lazy-first, minimal-code principles:
+
+- **Ponytail mode active:** Prefer stdlib/native solutions, delete over add, one line over fifty. See `/ponytail-help` for the full reference.
+- **Superpowers skills:** Use `brainstorming` before creative work, `systematic-debugging` for bugs, `test-driven-development` for features, and `verification-before-completion` before claiming work is done.
+- **No over-engineering:** No unrequested abstractions, no boilerplate "for later", no config for values that never change. Deletion over addition.
