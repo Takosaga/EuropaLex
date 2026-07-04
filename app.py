@@ -77,12 +77,15 @@ try:
 except Exception:
     pass  # Non-critical; app will work without this patch
 
+import json
 import logging
 import os
 from pathlib import Path
 import threading
 
 # Thread-safe store for inter-handler state (Gradio may run phases in different threads)
+# CRITICAL: HF Spaces ZeroGPU suspends container between requests, wiping module-level state.
+# We persist to disk so Phase 2 can recover data set by Phase 1.
 _state_lock = threading.Lock()
 _phase1_state = {
     'texts': [],
@@ -90,6 +93,40 @@ _phase1_state = {
     'cefr_level': '',
     'batch_size': 0,
 }
+
+_PHASE1_STATE_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), '.phase1_state.json'
+)
+
+
+def _save_phase1_state():
+    """Persist _phase1_state to disk (survives container suspension)."""
+    try:
+        with open(_PHASE1_STATE_FILE, 'w') as f:
+            json.dump(_phase1_state, f)
+    except Exception as e:
+        logger.warning("Failed to save phase1 state: %s", e)
+
+
+def _load_phase1_state() -> dict:
+    """Load _phase1_state from disk. Returns empty dict if file missing."""
+    try:
+        if os.path.exists(_PHASE1_STATE_FILE):
+            with open(_PHASE1_STATE_FILE, 'r') as f:
+                data = json.load(f)
+            return data
+    except Exception as e:
+        logger.warning("Failed to load phase1 state: %s", e)
+    return {'texts': [], 'scenario': '', 'cefr_level': '', 'batch_size': 0}
+
+
+def _clear_phase1_state():
+    """Clear persisted state after Phase 2 completes."""
+    try:
+        if os.path.exists(_PHASE1_STATE_FILE):
+            os.remove(_PHASE1_STATE_FILE)
+    except Exception as e:
+        logger.warning("Failed to clear phase1 state file: %s", e)
 
 logger = logging.getLogger(__name__)
 
@@ -206,35 +243,13 @@ def generate_text_async(
         )
         return
 
-    # Store Phase 1 texts for Phase 2 (thread-safe state)
+    # Store Phase 1 texts for Phase 2 (thread-safe state + persist to disk)
     with _state_lock:
         _phase1_state['texts'] = list(texts.generated_texts)
         _phase1_state['scenario'] = scenario
         _phase1_state['cefr_level'] = cefr_level
         _phase1_state['batch_size'] = batch_size
-    
-    # Verify state was set
-    print(f"[DEBUG PHASE1-VERIFY] After set: texts={_phase1_state['texts']}, id={id(_phase1_state)}", flush=True)
-    
-    # Aggressive debug: trace module identity for Phase 2 access
-    import sys as _sys
-    print(f"\n{'='*60}", flush=True)
-    print(f"[DEBUG PHASE1] Stored {len(_phase1_state['texts'])} texts", flush=True)
-    print(f"[DEBUG PHASE1] _phase1_state id: {id(_phase1_state)}", flush=True)
-    print(f"[DEBUG PHASE1] globals() id: {id(globals())}", flush=True)
-    print(f"[DEBUG PHASE1] sys.modules keys with 'app' or 'main': {[k for k in _sys.modules if 'app' in k.lower() or 'main' in k.lower()]}", flush=True)
-    if '__main__' in _sys.modules:
-        mm = _sys.modules['__main__']
-        print(f"[DEBUG PHASE1] __main__.id: {id(mm)}, has _phase1_state: {hasattr(mm, '_phase1_state')}", flush=True)
-        if hasattr(mm, '_phase1_state'):
-            print(f"[DEBUG PHASE1] __main__._phase1_state id: {id(mm._phase1_state)}", flush=True)
-    for k in _sys.modules:
-        m = _sys.modules[k]
-        ps = getattr(m, '_phase1_state', None)
-        if isinstance(ps, dict) and k != '__main__':
-            print(f"[DEBUG PHASE1] Found _phase1_state in module '{k}', id: {id(ps)}", flush=True)
-    print(f"{'='*60}\n", flush=True)
-    
+    _save_phase1_state()
     logger.info("Phase 1 complete: stored %d texts", len(_phase1_state['texts']))
 
     # Convert TextResult to card dicts for rendering
@@ -247,9 +262,6 @@ def generate_text_async(
 
     yield generate_progress_html(60, "Generating text..."), ""
     yield generate_progress_html(100, "Text ready! Adjust media toggles and click Generate Cards."), generate_cards_html(cards, include_image=False, include_audio=False, placeholder_back=True)
-    
-    # Check state AFTER last yield (before generator exits)
-    print(f"[DEBUG PHASE1-AFTER-YIELD] _phase1_state['texts'] = {_phase1_state['texts']}", flush=True)
 
 
 def _progress_pct(
@@ -294,11 +306,16 @@ def generate_media_async(
     TTS audio for all translations via OmniVoice (voice design mode), and
     yields progressive card updates so cards appear incrementally.
     """
+    # Load persisted state (survives container suspension on HF Spaces)
+    with _state_lock:
+        loaded = _load_phase1_state()
+        _phase1_state['texts'] = loaded.get('texts', [])
+        _phase1_state['scenario'] = loaded.get('scenario', '')
+        _phase1_state['cefr_level'] = loaded.get('cefr_level', '')
+        _phase1_state['batch_size'] = loaded.get('batch_size', 0)
+    
     with _state_lock:
         _current_texts = list(_phase1_state['texts'])
-    
-    print(f"[DEBUG MEDIA-START] _phase1_state id={id(_phase1_state)}, texts={_current_texts}, module={type(_phase1_state).__module__}", flush=True)
-    print(f"[DEBUG MEDIA-START] sys.modules keys with 'app' or 'main': {[k for k in sys.modules if 'app' in k.lower() or 'main' in k.lower()]}", flush=True)
 
     if not _current_texts:
         from frontend.ui.cards import generate_progress_html

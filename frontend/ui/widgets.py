@@ -222,7 +222,6 @@ def build_ui() -> "gr.Blocks":
     # Reference to the running script module — always __main__ on HF Spaces,
     # never `import app` (which would load a second copy and lose shared state)
     _app_module = sys.modules.get('app', sys.modules['__main__'])
-    print(f"[BUILD_UI] _app_module id={id(_app_module)}, 'app' in sys.modules: {'app' in sys.modules}, '__main__' in sys.modules: {'__main__' in sys.modules}", flush=True)
 
     from frontend.ui.cards import generate_cards_html, generate_progress_html
 
@@ -324,60 +323,14 @@ def build_ui() -> "gr.Blocks":
                 yield result
 
         def _handle_media_generation_v2(scenario: str, cefr_level: str, batch_size: int, target_language: str, include_audio: bool, include_images: bool, voice: str):
-            """Wrapper for generate_media_async that handles empty scenario and missing Phase 1 texts.
-
-            Reads _phase1_texts from app module (via module ref to survive rebinding).
-            """
+            """Wrapper for generate_media_async that handles empty scenario and missing Phase 1 texts."""
             import logging
-            import sys
-            import threading
             logger = logging.getLogger(__name__)
             
-            # FIRST THING: check state before any other logic
-            initial_texts = _app_module._phase1_state.get('texts', [])
-            print(f"[DEBUG PHASE2-FIRST] texts={initial_texts}, id(_phase1_state)={id(_app_module._phase1_state)}", flush=True)
-            
-            # Aggressive debug: trace module identity for Phase 1->2 state sharing
-            print(f"\n{'='*60}", flush=True)
-            print(f"[DEBUG PHASE2] Thread: {threading.get_ident()}", flush=True)
-            print(f"[DEBUG PHASE2] _app_module id={id(_app_module)}, type={type(_app_module).__name__}", flush=True)
-            print(f"[DEBUG PHASE2] 'app' in sys.modules: {'app' in sys.modules}", flush=True)
-            if 'app' in sys.modules:
-                print(f"[DEBUG PHASE2] sys.modules['app'] id={id(sys.modules['app'])}", flush=True)
-            print(f"[DEBUG PHASE2] '__main__' in sys.modules: {'__main__' in sys.modules}", flush=True)
-            if '__main__' in sys.modules:
-                print(f"[DEBUG PHASE2] sys.modules['__main__'] id={id(sys.modules['__main__'])}", flush=True)
-            print(f"[DEBUG PHASE2] globals() id: {id(globals())}", flush=True)
-            print(f"[DEBUG PHASE2] sys.modules keys with 'app' or 'main': {[k for k in sys.modules if 'app' in k.lower() or 'main' in k.lower()]}", flush=True)
-            
-            # Check ALL modules that have _phase1_state
-            found = []
-            for mod_name, mod in sys.modules.items():
-                ps = getattr(mod, '_phase1_state', None)
-                if isinstance(ps, dict):
-                    texts = ps.get('texts', [])
-                    found.append(f"  '{mod_name}': id={id(ps)}, texts={len(texts)}")
-            print(f"[DEBUG PHASE2] All _phase1_state locations:", flush=True)
-            for f in found:
-                print(f, flush=True)
-            
             phase1_count = len(_app_module._phase1_state['texts'])
-            print(f"[DEBUG PHASE2] _app_module._phase1_state id: {id(_app_module._phase1_state)}", flush=True)
-            print(f"[DEBUG PHASE2] Reading {phase1_count} texts from Phase 2 entry point", flush=True)
-            print(f"{'='*60}\n", flush=True)
-            
             logger.info("Phase 2 start: _phase1_state has %d items", phase1_count)
             
             if not _app_module._phase1_state['texts']:
-                print(f"[DEBUG PHASE2-ERROR] _app_module = {type(_app_module).__name__} id={id(_app_module)}", flush=True)
-                print(f"[DEBUG PHASE2-ERROR] Module file: {getattr(_app_module, '__file__', 'N/A')}", flush=True)
-                print(f"[DEBUG PHASE2-ERROR] _phase1_state id: {id(_app_module._phase1_state)}", flush=True)
-                print(f"[DEBUG PHASE2-ERROR] All state keys: {list(_app_module._phase1_state.keys())}", flush=True)
-                # Check if another module has the real data
-                for mod_name, mod in sys.modules.items():
-                    ps = getattr(mod, '_phase1_state', None)
-                    if isinstance(ps, dict) and id(ps) != id(_app_module._phase1_state):
-                        print(f"[DEBUG PHASE2-ERROR] REAL DATA in '{mod_name}' (id={id(ps)}): {ps.get('texts', [])}", flush=True)
                 yield generate_progress_html(0, "⚠️ Please generate text first."), (
                     '<div style="color:#c44; padding:20px;">'
                     'No Phase 1 text found. Generate English text first, then click "Generate Cards".'
@@ -400,6 +353,9 @@ def build_ui() -> "gr.Blocks":
             Phase 2 completes (when _current_cards is populated).
             """
             import gradio as gr
+            # Clear persisted phase1 state so Phase 2 can't accidentally re-read stale data
+            from app import _clear_phase1_state
+            _clear_phase1_state()
             return (
                 gr.Button(visible=False),        # generate_text_btn
                 gr.Button(visible=False),       # generate_cards_btn
