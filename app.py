@@ -104,8 +104,9 @@ def _save_phase1_state():
     try:
         with open(_PHASE1_STATE_FILE, 'w') as f:
             json.dump(_phase1_state, f)
+        print(f"[STATE] Saved {len(_phase1_state.get('texts', []))} texts to {_PHASE1_STATE_FILE}", flush=True)
     except Exception as e:
-        logger.warning("Failed to save phase1 state: %s", e)
+        print(f"[STATE] FAIL save: {e}", flush=True)
 
 
 def _load_phase1_state() -> dict:
@@ -114,9 +115,12 @@ def _load_phase1_state() -> dict:
         if os.path.exists(_PHASE1_STATE_FILE):
             with open(_PHASE1_STATE_FILE, 'r') as f:
                 data = json.load(f)
+            print(f"[STATE] Loaded {len(data.get('texts', []))} texts from {_PHASE1_STATE_FILE}", flush=True)
             return data
+        else:
+            print(f"[STATE] No state file at {_PHASE1_STATE_FILE}", flush=True)
     except Exception as e:
-        logger.warning("Failed to load phase1 state: %s", e)
+        print(f"[STATE] FAIL load: {e}", flush=True)
     return {'texts': [], 'scenario': '', 'cefr_level': '', 'batch_size': 0}
 
 
