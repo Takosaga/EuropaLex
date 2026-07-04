@@ -118,7 +118,7 @@ class TestLanguageAbbrevMapping:
     def test_all_languages_mapped(self):
         assert _LANGUAGE_ABBREVS["Latvian"] == "LV"
         assert _LANGUAGE_ABBREVS["Spanish"] == "ES"
-        assert len(_LANGUAGE_ABBREVS) >= 8  # full set is 23
+        assert len(_LANGUAGE_ABBREVS) == 23
 
     def test_invalid_language_raises(self):
         with pytest.raises(ValueError, match="Unknown language"):
