@@ -331,17 +331,16 @@ def build_ui() -> "gr.Blocks":
             # Always use __main__ — Gradio imports app as a module but runs it as __main__
             _app_module = sys.modules['__main__']
             
-            phase1_count = len(_app_module._phase1_texts) if hasattr(_app_module, '_phase1_texts') else 0
-            print(f"[DEBUG PHASE2] Thread: {threading.get_ident()}, _phase1_texts has {phase1_count} items. Module: {id(_app_module)}, __main__: {id(sys.modules['__main__'])}, 'app' in modules: {'app' in sys.modules}", flush=True)
+            # Use thread-safe state store instead of module-level globals
+            phase1_count = len(_phase1_state['texts'])
+            print(f"[DEBUG PHASE2] Thread: {threading.get_ident()}, _phase1_state has {phase1_count} items. Module: {id(_app_module)}, __main__: {id(sys.modules['__main__'])}, 'app' in modules: {'app' in sys.modules}", flush=True)
             
-            # Check if _app_module is actually the right module
-            if hasattr(_app_module, '_phase1_texts'):
-                print(f"[DEBUG PHASE2] Type of _phase1_texts: {type(_app_module._phase1_texts)}, Value: {_app_module._phase1_texts[:2] if _app_module._phase1_texts else 'empty'}", flush=True)
+            # Check if state is available
+            print(f"[DEBUG PHASE2] Type of _phase1_state['texts']: {type(_phase1_state['texts'])}, Value: {_phase1_state['texts'][:2] if _phase1_state['texts'] else 'empty'}", flush=True)
             
-            logger.info("Phase 2 start: _phase1_texts has %d items", phase1_count)
-            logger.info("_app_module id: %s, sys.modules['app'] id: %s, __main__ id: %s", id(_app_module), id(sys.modules.get('app', None)), id(sys.modules['__main__']))
+            logger.info("Phase 2 start: _phase1_state has %d items", phase1_count)
             
-            if not _app_module._phase1_texts:
+            if not _phase1_state['texts']:
                 yield generate_progress_html(0, "⚠️ Please generate text first."), (
                     '<div style="color:#c44; padding:20px;">'
                     'No Phase 1 text found. Generate English text first, then click "Generate Cards".'

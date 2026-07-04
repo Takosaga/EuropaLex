@@ -80,6 +80,16 @@ except Exception:
 import logging
 import os
 from pathlib import Path
+import threading
+
+# Thread-safe store for inter-handler state (Gradio may run phases in different threads)
+_state_lock = threading.Lock()
+_phase1_state = {
+    'texts': [],
+    'scenario': '',
+    'cefr_level': '',
+    'batch_size': 0,
+}
 
 logger = logging.getLogger(__name__)
 
@@ -196,15 +206,15 @@ def generate_text_async(
         )
         return
 
-    # Store Phase 1 texts for Phase 2 (module-level state)
-    global _phase1_texts
-    import threading
-    import sys
-    _phase1_texts = list(texts.generated_texts)
-    print(f"[DEBUG PHASE1] Thread: {threading.get_ident()}, Stored {len(_phase1_texts)} texts. Module: __main__={id(sys.modules['__main__'])}, app={'app' in sys.modules}", flush=True)
-    print(f"[DEBUG PHASE1] _phase1_texts value: {_phase1_texts[:2] if _phase1_texts else 'empty'}", flush=True)
-    print(f"[DEBUG PHASE1] Verifying _phase1_texts is set: {len(_phase1_texts) > 0}", flush=True)
-    logger.info("Phase 1 complete: stored %d texts in _phase1_texts", len(_phase1_texts))
+    # Store Phase 1 texts for Phase 2 (thread-safe state)
+    with _state_lock:
+        _phase1_state['texts'] = list(texts.generated_texts)
+        _phase1_state['scenario'] = scenario
+        _phase1_state['cefr_level'] = cefr_level
+        _phase1_state['batch_size'] = batch_size
+    print(f"[DEBUG PHASE1] Thread: {threading.get_ident()}, Stored {len(_phase1_state['texts'])} texts. State keys: {list(_phase1_state.keys())}", flush=True)
+    print(f"[DEBUG PHASE1] _phase1_state['texts'] value: {_phase1_state['texts'][:2] if _phase1_state['texts'] else 'empty'}", flush=True)
+    logger.info("Phase 1 complete: stored %d texts", len(_phase1_state['texts']))
     logger.info("Module IDs - __main__: %s, app: %s", id(sys.modules['__main__']), id(sys.modules.get('app', None)))
 
     # Convert TextResult to card dicts for rendering
@@ -256,14 +266,15 @@ def generate_media_async(
 ):
     """Phase 2: Translate Phase 1 English text and optionally generate TTS audio.
 
-    Reads the English texts from _phase1_texts (set by Phase 1 handler),
+    Reads the English texts from _phase1_state (set by Phase 1 handler),
     translates each sentence one-by-one via tiny-aya, optionally generates
     TTS audio for all translations via OmniVoice (voice design mode), and
     yields progressive card updates so cards appear incrementally.
     """
-    global _phase1_texts
+    with _state_lock:
+        _current_texts = list(_phase1_state['texts'])
 
-    if not _phase1_texts:
+    if not _current_texts:
         from frontend.ui.cards import generate_progress_html
         yield generate_progress_html(0, "⚠️ Please generate text first."), (
             '<div style="color:#c44; padding:20px;">'
@@ -271,10 +282,6 @@ def generate_media_async(
             '</div>'
         )
         return
-
-    # Save Phase 1 texts for this generation pass. Keep _phase1_texts intact so
-    # the user can change language and regenerate media without re-generating text.
-    _current_texts = list(_phase1_texts)
 
     try:
         from core.engine import EnginePool
@@ -330,7 +337,7 @@ def generate_media_async(
         return engine._translate_single(text, cefr, topic_description=scenario, target_language=lang)
 
     cards: list[dict] = []
-    total = len(_phase1_texts)
+    total = len(_current_texts)
 
     for i, english_text in enumerate(_current_texts):
         try:
