@@ -221,7 +221,7 @@ def build_ui() -> "gr.Blocks":
 
     # Reference to the running script module — always __main__ on HF Spaces,
     # never `import app` (which would load a second copy and lose shared state)
-    _app_module = sys.modules['__main__']
+    _app_module = sys.modules.get('app', sys.modules['__main__'])
 
     from frontend.ui.cards import generate_cards_html, generate_progress_html
 
@@ -343,7 +343,7 @@ def build_ui() -> "gr.Blocks":
             found = []
             for mod_name, mod in sys.modules.items():
                 ps = getattr(mod, '_phase1_state', None)
-                if ps is not None:
+                if isinstance(ps, dict):
                     texts = ps.get('texts', [])
                     found.append(f"  '{mod_name}': id={id(ps)}, texts={len(texts)}")
             print(f"[DEBUG PHASE2] All _phase1_state locations:", flush=True)
@@ -365,7 +365,7 @@ def build_ui() -> "gr.Blocks":
                 # Check if another module has the real data
                 for mod_name, mod in sys.modules.items():
                     ps = getattr(mod, '_phase1_state', None)
-                    if ps is not None and id(ps) != id(_app_module._phase1_state):
+                    if isinstance(ps, dict) and id(ps) != id(_app_module._phase1_state):
                         print(f"[DEBUG PHASE2-ERROR] REAL DATA in '{mod_name}' (id={id(ps)}): {ps.get('texts', [])}", flush=True)
                 yield generate_progress_html(0, "⚠️ Please generate text first."), (
                     '<div style="color:#c44; padding:20px;">'
