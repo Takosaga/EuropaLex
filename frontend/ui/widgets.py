@@ -324,10 +324,15 @@ def build_ui() -> "gr.Blocks":
             Reads _phase1_texts from app module (via module ref to survive rebinding).
             """
             import logging
+            import sys
             logger = logging.getLogger(__name__)
+            
+            # Use __main__ if app isn't in sys.modules (running as script vs imported)
+            _app_module = sys.modules.get('app', sys.modules['__main__'])
             
             phase1_count = len(_app_module._phase1_texts) if hasattr(_app_module, '_phase1_texts') else 0
             logger.info("Phase 2 start: _phase1_texts has %d items", phase1_count)
+            logger.info("_app_module id: %s, sys.modules['app'] id: %s, __main__ id: %s", id(_app_module), id(sys.modules.get('app', None)), id(sys.modules['__main__']))
             
             if not _app_module._phase1_texts:
                 yield generate_progress_html(0, "⚠️ Please generate text first."), (

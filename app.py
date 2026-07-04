@@ -199,7 +199,9 @@ def generate_text_async(
     # Store Phase 1 texts for Phase 2 (module-level state)
     global _phase1_texts
     _phase1_texts = list(texts.generated_texts)
+    import sys
     logger.info("Phase 1 complete: stored %d texts in _phase1_texts", len(_phase1_texts))
+    logger.info("app module id: %s, sys.modules['app'] id: %s", id(sys.modules['__main__']), id(sys.modules.get('app', None)))
 
     # Convert TextResult to card dicts for rendering
     from frontend.ui.cards import generate_cards_html
