@@ -213,6 +213,9 @@ def generate_text_async(
         _phase1_state['cefr_level'] = cefr_level
         _phase1_state['batch_size'] = batch_size
     
+    # Verify state was set
+    print(f"[DEBUG PHASE1-VERIFY] After set: texts={_phase1_state['texts']}, id={id(_phase1_state)}", flush=True)
+    
     # Aggressive debug: trace module identity for Phase 2 access
     import sys as _sys
     print(f"\n{'='*60}", flush=True)
@@ -290,6 +293,8 @@ def generate_media_async(
     """
     with _state_lock:
         _current_texts = list(_phase1_state['texts'])
+    
+    print(f"[DEBUG MEDIA-START] _phase1_state id={id(_phase1_state)}, texts={_current_texts}, module={type(_phase1_state).__module__}", flush=True)
 
     if not _current_texts:
         from frontend.ui.cards import generate_progress_html
