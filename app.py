@@ -198,10 +198,11 @@ def generate_text_async(
 
     # Store Phase 1 texts for Phase 2 (module-level state)
     global _phase1_texts
+    import threading
     _phase1_texts = list(texts.generated_texts)
-    import sys
-    print(f"[DEBUG PHASE1] Stored {len(_phase1_texts)} texts. Module: __main__={id(sys.modules['__main__'])}, app={'app' in sys.modules}", flush=True)
+    print(f"[DEBUG PHASE1] Thread: {threading.get_ident()}, Stored {len(_phase1_texts)} texts. Module: __main__={id(sys.modules['__main__'])}, app={'app' in sys.modules}", flush=True)
     print(f"[DEBUG PHASE1] _phase1_texts value: {_phase1_texts[:2] if _phase1_texts else 'empty'}", flush=True)
+    print(f"[DEBUG PHASE1] Verifying _phase1_texts is set: {len(_phase1_texts) > 0}", flush=True)
     logger.info("Phase 1 complete: stored %d texts in _phase1_texts", len(_phase1_texts))
     logger.info("Module IDs - __main__: %s, app: %s", id(sys.modules['__main__']), id(sys.modules.get('app', None)))
 
