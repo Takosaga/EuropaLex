@@ -212,8 +212,6 @@ def generate_text_async(
         _phase1_state['scenario'] = scenario
         _phase1_state['cefr_level'] = cefr_level
         _phase1_state['batch_size'] = batch_size
-    print(f"[DEBUG PHASE1] Thread: {threading.get_ident()}, Stored {len(_phase1_state['texts'])} texts. State keys: {list(_phase1_state.keys())}", flush=True)
-    print(f"[DEBUG PHASE1] _phase1_state['texts'] value: {_phase1_state['texts'][:2] if _phase1_state['texts'] else 'empty'}", flush=True)
     logger.info("Phase 1 complete: stored %d texts", len(_phase1_state['texts']))
 
     # Convert TextResult to card dicts for rendering

@@ -214,10 +214,14 @@ def build_ui() -> "gr.Blocks":
         Configured gr.Blocks instance with all events wired.
     """
     import gradio as gr
+    import sys
 
     # Import business logic handlers INSIDE build_ui to avoid circular import
     from app import generate_text_async, generate_media_async
-    import app as _app_module  # access _phase1_texts via module ref (rebinding in app.py won't break the reference)
+
+    # Reference to the running script module — always __main__ on HF Spaces,
+    # never `import app` (which would load a second copy and lose shared state)
+    _app_module = sys.modules['__main__']
 
     from frontend.ui.cards import generate_cards_html, generate_progress_html
 
@@ -324,19 +328,11 @@ def build_ui() -> "gr.Blocks":
             Reads _phase1_texts from app module (via module ref to survive rebinding).
             """
             import logging
-            import sys
             import threading
             logger = logging.getLogger(__name__)
             
-            # Always use __main__ — Gradio imports app as a module but runs it as __main__
-            _app_module = sys.modules['__main__']
-            
-            # Use thread-safe state store instead of module-level globals
             phase1_count = len(_app_module._phase1_state['texts'])
-            print(f"[DEBUG PHASE2] Thread: {threading.get_ident()}, _phase1_state has {phase1_count} items. Module: {id(_app_module)}, __main__: {id(sys.modules['__main__'])}, 'app' in modules: {'app' in sys.modules}", flush=True)
-            
-            # Check if state is available
-            print(f"[DEBUG PHASE2] Type of _phase1_state['texts']: {type(_app_module._phase1_state['texts'])}, Value: {_app_module._phase1_state['texts'][:2] if _app_module._phase1_state['texts'] else 'empty'}", flush=True)
+            print(f"[DEBUG PHASE2] Thread: {threading.get_ident()}, _phase1_state has {phase1_count} items", flush=True)
             
             logger.info("Phase 2 start: _phase1_state has %d items", phase1_count)
             
