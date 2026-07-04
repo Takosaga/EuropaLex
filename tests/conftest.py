@@ -51,14 +51,60 @@ def mock_spanish_translations():
 
 
 @pytest.fixture
-def mock_audio_paths():
+def ensure_test_fixtures():
+    """Generate minimal valid wav/png placeholders if missing (not tracked in git)."""
+    import struct, zlib
+
+    audio_dir = PROJECT_ROOT / "tests" / "test_outputs" / "audio"
+    images_dir = PROJECT_ROOT / "tests" / "test_outputs" / "images"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    # Minimal valid WAV: RIFF header + 16-bit mono silence (440 samples @ 22050Hz)
+    sample_rate = 22050
+    num_samples = 440
+    raw = b"\x00\x00" * num_samples
+    wav = (
+        b"RIFF"
+        + struct.pack("<I", 36 + len(raw))
+        + b"WAVE"
+        + b"fmt \x10\x00\x00\x00"
+        + struct.pack("<HHIIHH", 1, 1, sample_rate, sample_rate * 2, 2, 16)
+        + b"data" + struct.pack("<I", len(raw))
+        + raw
+    )
+    for i in range(3):
+        path = audio_dir / f"audio_{i}.wav"
+        if not path.exists():
+            path.write_bytes(wav)
+
+    # Minimal valid PNG: 1x1 transparent pixel
+    def _make_png():
+        sig = b"\x89PNG\r\n\x1a\n"
+        def chunk(ctype, data):
+            c = ctype + data
+            return struct.pack("<I", len(data)) + c + struct.pack("<I", zlib.crc32(c) & 0xFFFFFFFF)
+        ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0))
+        raw_data = zlib.compress(b"\x00\x00\x00\xff")
+        idat = chunk(b"IDAT", raw_data)
+        iend = chunk(b"IEND", b"")
+        return sig + ihdr + idat + iend
+
+    for i in range(3):
+        path = images_dir / f"image_{i}.png"
+        if not path.exists():
+            path.write_bytes(_make_png())
+
+
+@pytest.fixture
+def mock_audio_paths(ensure_test_fixtures):
     """Real .wav paths from tests/test_outputs/audio/ for file-existence tests."""
     audio_dir = PROJECT_ROOT / "tests" / "test_outputs" / "audio"
     return [str(audio_dir / f"audio_{i}.wav") for i in range(3)]
 
 
 @pytest.fixture
-def mock_image_paths():
+def mock_image_paths(ensure_test_fixtures):
     """Real .png paths from tests/test_outputs/images/ for file-existence tests."""
     image_dir = PROJECT_ROOT / "tests" / "test_outputs" / "images"
     return [str(image_dir / f"image_{i}.png") for i in range(3)]
