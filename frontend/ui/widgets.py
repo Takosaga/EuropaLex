@@ -325,7 +325,15 @@ def build_ui() -> "gr.Blocks":
         def _handle_media_generation_v2(scenario: str, cefr_level: str, batch_size: int, target_language: str, include_audio: bool, include_images: bool, voice: str):
             """Wrapper for generate_media_async that handles empty scenario and missing Phase 1 texts."""
             import logging
+            from app import _load_phase1_state
             logger = logging.getLogger(__name__)
+            
+            # Load persisted state BEFORE checking (survives container suspension)
+            loaded = _load_phase1_state()
+            _app_module._phase1_state['texts'] = loaded.get('texts', [])
+            _app_module._phase1_state['scenario'] = loaded.get('scenario', '')
+            _app_module._phase1_state['cefr_level'] = loaded.get('cefr_level', '')
+            _app_module._phase1_state['batch_size'] = loaded.get('batch_size', 0)
             
             phase1_count = len(_app_module._phase1_state['texts'])
             print(f"[PHASE2] _app_module._phase1_state has {phase1_count} texts", flush=True)
