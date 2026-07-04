@@ -310,14 +310,6 @@ def generate_media_async(
     TTS audio for all translations via OmniVoice (voice design mode), and
     yields progressive card updates so cards appear incrementally.
     """
-    # Load persisted state (survives container suspension on HF Spaces)
-    with _state_lock:
-        loaded = _load_phase1_state()
-        _phase1_state['texts'] = loaded.get('texts', [])
-        _phase1_state['scenario'] = loaded.get('scenario', '')
-        _phase1_state['cefr_level'] = loaded.get('cefr_level', '')
-        _phase1_state['batch_size'] = loaded.get('batch_size', 0)
-    
     with _state_lock:
         _current_texts = list(_phase1_state['texts'])
 
