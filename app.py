@@ -77,16 +77,67 @@ try:
 except Exception:
     pass  # Non-critical; app will work without this patch
 
+import json
 import logging
 import os
 from pathlib import Path
+import threading
+
+# Thread-safe store for inter-handler state (Gradio may run phases in different threads)
+# CRITICAL: HF Spaces ZeroGPU suspends container between requests, wiping module-level state.
+# We persist to disk so Phase 2 can recover data set by Phase 1.
+_state_lock = threading.Lock()
+_phase1_state = {
+    'texts': [],
+    'scenario': '',
+    'cefr_level': '',
+    'batch_size': 0,
+}
+
+_PHASE1_STATE_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), '.phase1_state.json'
+)
+
+
+def _save_phase1_state():
+    """Persist _phase1_state to disk (survives container suspension)."""
+    try:
+        with open(_PHASE1_STATE_FILE, 'w') as f:
+            json.dump(_phase1_state, f)
+        print(f"[STATE] Saved {len(_phase1_state.get('texts', []))} texts to {_PHASE1_STATE_FILE}", flush=True)
+    except Exception as e:
+        print(f"[STATE] FAIL save: {e}", flush=True)
+
+
+def _load_phase1_state() -> dict:
+    """Load _phase1_state from disk. Returns empty dict if file missing."""
+    try:
+        if os.path.exists(_PHASE1_STATE_FILE):
+            with open(_PHASE1_STATE_FILE, 'r') as f:
+                data = json.load(f)
+            print(f"[STATE] Loaded {len(data.get('texts', []))} texts from {_PHASE1_STATE_FILE}", flush=True)
+            return data
+        else:
+            print(f"[STATE] No state file at {_PHASE1_STATE_FILE}", flush=True)
+    except Exception as e:
+        print(f"[STATE] FAIL load: {e}", flush=True)
+    return {'texts': [], 'scenario': '', 'cefr_level': '', 'batch_size': 0}
+
+
+def _clear_phase1_state():
+    """Clear persisted state after Phase 2 completes."""
+    try:
+        if os.path.exists(_PHASE1_STATE_FILE):
+            os.remove(_PHASE1_STATE_FILE)
+    except Exception as e:
+        logger.warning("Failed to clear phase1 state file: %s", e)
 
 logger = logging.getLogger(__name__)
 
 # ─── ZeroGPU support for HF Spaces ──────────────────────
 try:
     import spaces
-    def gpu(fn): return spaces.GPU(duration=120)(fn)
+    def gpu(fn): return spaces.GPU(duration=600)(fn)
 except ImportError:
     def gpu(fn): return fn  # no-op locally
 
@@ -139,13 +190,26 @@ def generate_text_async(
     """
     # Load config and get engine
     try:
-        from core.engine import EnginePool, MiniCPMTextEngine
+        from core.engine import EnginePool, MiniCPMTextEngine, LlamaCppTextEngine, TTSEngine
         from core.types import CEFRLevel, EngineConfig
         from frontend.ui.cards import generate_progress_html
 
         config = EngineConfig.from_settings_yaml()
         pool = EnginePool.get(config)
-        engine = pool.get_english_engine()
+
+        # Pre-load all Phase 1+2 engines in one GPU session to minimize
+        # ZeroGPU proxy token refreshes on HF Spaces.
+        # ponytail: text engines are small (~3GB total) vs image model (~8GB);
+        # load them first, unload after Phase 1, then only load image engine later.
+        print("[ENGINE] Pre-loading translation engine...", flush=True)
+        pool.get_translation_engine()
+        print("[ENGINE] Pre-loading TTS engine...", flush=True)
+        pool.get_tts_engine()
+
+        # Now unload text engines — Phase 2 only needs image engine
+        print("[ENGINE] Unloading translation + TTS engines to free VRAM...", flush=True)
+        pool._unload_translation()
+        pool._unload_tts()
 
         cefr = CEFRLevel(cefr_level)
     except FileNotFoundError as e:
@@ -173,6 +237,7 @@ def generate_text_async(
     # Generate English text via MiniCPM5-1B
     try:
         yield generate_progress_html(20, "Preparing MiniCPM5-1B generation..."), ""
+        engine = pool.get_english_engine()
         texts = engine.generate(
             texts=[],  # empty = generation mode (not translation)
             scenario=scenario,
@@ -196,9 +261,14 @@ def generate_text_async(
         )
         return
 
-    # Store Phase 1 texts for Phase 2 (module-level state)
-    global _phase1_texts
-    _phase1_texts = list(texts.generated_texts)
+    # Store Phase 1 texts for Phase 2 (thread-safe state + persist to disk)
+    with _state_lock:
+        _phase1_state['texts'] = list(texts.generated_texts)
+        _phase1_state['scenario'] = scenario
+        _phase1_state['cefr_level'] = cefr_level
+        _phase1_state['batch_size'] = batch_size
+    _save_phase1_state()
+    logger.info("Phase 1 complete: stored %d texts", len(_phase1_state['texts']))
 
     # Convert TextResult to card dicts for rendering
     from frontend.ui.cards import generate_cards_html
@@ -249,14 +319,15 @@ def generate_media_async(
 ):
     """Phase 2: Translate Phase 1 English text and optionally generate TTS audio.
 
-    Reads the English texts from _phase1_texts (set by Phase 1 handler),
+    Reads the English texts from _phase1_state (set by Phase 1 handler),
     translates each sentence one-by-one via tiny-aya, optionally generates
     TTS audio for all translations via OmniVoice (voice design mode), and
     yields progressive card updates so cards appear incrementally.
     """
-    global _phase1_texts
+    with _state_lock:
+        _current_texts = list(_phase1_state['texts'])
 
-    if not _phase1_texts:
+    if not _current_texts:
         from frontend.ui.cards import generate_progress_html
         yield generate_progress_html(0, "⚠️ Please generate text first."), (
             '<div style="color:#c44; padding:20px;">'
@@ -264,10 +335,6 @@ def generate_media_async(
             '</div>'
         )
         return
-
-    # Save Phase 1 texts for this generation pass. Keep _phase1_texts intact so
-    # the user can change language and regenerate media without re-generating text.
-    _current_texts = list(_phase1_texts)
 
     try:
         from core.engine import EnginePool
@@ -301,7 +368,7 @@ def generate_media_async(
 
     yield generate_progress_html(10, "Preparing translation engine..."), ""
 
-    # Get the translation engine (lazy-loads tiny-aya)
+    # Get the translation engine (pre-loaded above in this GPU session)
     try:
         from core.engine import LlamaCppTextEngine
         translation_engine = pool.get_translation_engine()
@@ -323,7 +390,7 @@ def generate_media_async(
         return engine._translate_single(text, cefr, topic_description=scenario, target_language=lang)
 
     cards: list[dict] = []
-    total = len(_phase1_texts)
+    total = len(_current_texts)
 
     for i, english_text in enumerate(_current_texts):
         try:

@@ -229,11 +229,23 @@ class LlamaCppTextEngine:
                 ),
             })
 
-            output = self._llm.create_chat_completion(
-                messages=messages,
-                max_tokens=128,
-                temperature=0.3,
-            )
+            try:
+                output = self._llm.create_chat_completion(
+                    messages=messages,
+                    max_tokens=128,
+                    temperature=0.3,
+                )
+            except Exception as e:
+                # CUDA decode failures (e.g. ggml-cuda launch_mul_mat_q on SWA models)
+                # are often fixed by reloading the model — the fresh context gets
+                # proper CUDA graph warmup.
+                logger.warning(
+                    "LlamaCppTextEngine: decode failed on attempt %d for '%s': %s — reloading model and retrying",
+                    attempt, text[:30], e,
+                )
+                self.unload()  # free GPU memory from stale CUDA state
+                self._load_model()  # fresh load gets clean warmup
+                continue
 
             raw_text = output.get("choices", [{}])[0].get("message", {}).get("content", "")
             last_messages = [
