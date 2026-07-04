@@ -325,6 +325,7 @@ def build_ui() -> "gr.Blocks":
             """
             import logging
             import sys
+            import threading
             logger = logging.getLogger(__name__)
             
             # Always use __main__ — Gradio imports app as a module but runs it as __main__
