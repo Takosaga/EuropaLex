@@ -227,8 +227,9 @@ def generate_text_async(
             print(f"[DEBUG PHASE1] __main__._phase1_state id: {id(mm._phase1_state)}", flush=True)
     for k in _sys.modules:
         m = _sys.modules[k]
-        if hasattr(m, '_phase1_state') and k != '__main__':
-            print(f"[DEBUG PHASE1] Found _phase1_state in module '{k}', id: {id(m._phase1_state)}", flush=True)
+        ps = getattr(m, '_phase1_state', None)
+        if isinstance(ps, dict) and k != '__main__':
+            print(f"[DEBUG PHASE1] Found _phase1_state in module '{k}', id: {id(ps)}", flush=True)
     print(f"{'='*60}\n", flush=True)
     
     logger.info("Phase 1 complete: stored %d texts", len(_phase1_state['texts']))
