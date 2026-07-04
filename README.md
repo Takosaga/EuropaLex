@@ -1,3 +1,15 @@
+---
+title: EuropaLex Flashcards
+emoji: 🌍
+colorFrom: purple
+colorTo: yellow
+sdk: gradio
+sdk_version: 6.19.0
+python_version: '3.13'
+app_file: app.py
+pinned: false
+---
+
 # Europa Lex
 
 AI-powered flashcard generator for European languages. Generates target-language translations, text-to-speech audio, and illustrative images — exports as a proper `.apkg` file via genanki or a zipped CSV folder with flat media files.
