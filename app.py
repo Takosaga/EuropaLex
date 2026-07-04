@@ -83,6 +83,15 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# ─── ZeroGPU support for HF Spaces ──────────────────────
+try:
+    import spaces
+    _HF_SPACES = True
+    def gpu(fn): return spaces.GPU(duration=120)(fn)
+except ImportError:
+    _HF_SPACES = False
+    def gpu(fn): return fn  # no-op locally
+
 # ─── Auto-download models on first run ────────────────────────
 # Ensures the app works out-of-the-box (e.g. HF Spaces) without
 # baking 26 GB of model weights into git.
