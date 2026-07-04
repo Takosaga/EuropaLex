@@ -318,15 +318,15 @@ def generate_media_async(
         return
 
     # Build cards one-by-one — each sentence translated individually
+    @gpu
+    def _translate_single(engine, text, cefr, scenario, lang):
+        return engine._translate_single(text, cefr, topic_description=scenario, target_language=lang)
+
     cards: list[dict] = []
     total = len(_phase1_texts)
 
     for i, english_text in enumerate(_current_texts):
         try:
-            @gpu
-            def _translate_single(engine, text, cefr, scenario, lang):
-                return engine._translate_single(text, cefr, topic_description=scenario, target_language=lang)
-
             translation = _translate_single(
                 translation_engine, english_text, cefr, scenario, target_language
             )
