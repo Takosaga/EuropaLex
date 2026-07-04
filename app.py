@@ -212,6 +212,25 @@ def generate_text_async(
         _phase1_state['scenario'] = scenario
         _phase1_state['cefr_level'] = cefr_level
         _phase1_state['batch_size'] = batch_size
+    
+    # Aggressive debug: trace module identity for Phase 2 access
+    import sys as _sys
+    print(f"\n{'='*60}", flush=True)
+    print(f"[DEBUG PHASE1] Stored {len(_phase1_state['texts'])} texts", flush=True)
+    print(f"[DEBUG PHASE1] _phase1_state id: {id(_phase1_state)}", flush=True)
+    print(f"[DEBUG PHASE1] globals() id: {id(globals())}", flush=True)
+    print(f"[DEBUG PHASE1] sys.modules keys with 'app' or 'main': {[k for k in _sys.modules if 'app' in k.lower() or 'main' in k.lower()]}", flush=True)
+    if '__main__' in _sys.modules:
+        mm = _sys.modules['__main__']
+        print(f"[DEBUG PHASE1] __main__.id: {id(mm)}, has _phase1_state: {hasattr(mm, '_phase1_state')}", flush=True)
+        if hasattr(mm, '_phase1_state'):
+            print(f"[DEBUG PHASE1] __main__._phase1_state id: {id(mm._phase1_state)}", flush=True)
+    for k in _sys.modules:
+        m = _sys.modules[k]
+        if hasattr(m, '_phase1_state') and k != '__main__':
+            print(f"[DEBUG PHASE1] Found _phase1_state in module '{k}', id: {id(m._phase1_state)}", flush=True)
+    print(f"{'='*60}\n", flush=True)
+    
     logger.info("Phase 1 complete: stored %d texts", len(_phase1_state['texts']))
 
     # Convert TextResult to card dicts for rendering
