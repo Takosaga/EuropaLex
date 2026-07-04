@@ -200,6 +200,7 @@ def generate_text_async(
     global _phase1_texts
     _phase1_texts = list(texts.generated_texts)
     import sys
+    print(f"[DEBUG PHASE1] Stored {len(_phase1_texts)} texts. Module: __main__={id(sys.modules['__main__'])}, app={'app' in sys.modules}", flush=True)
     logger.info("Phase 1 complete: stored %d texts in _phase1_texts", len(_phase1_texts))
     logger.info("Module IDs - __main__: %s, app: %s", id(sys.modules['__main__']), id(sys.modules.get('app', None)))
 
