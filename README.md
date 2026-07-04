@@ -4,13 +4,6 @@ AI-powered flashcard generator for European languages. Generates target-language
 
 > **Note:** All commands and paths in this document are relative to the `EuropaLex/` project root. Assume you are already inside this directory.
 
-## Hackathon Criteria
-
-- **Off-Brand** — Custom CSS pushes past the default Gradio look; styled card widgets resembling physical flashcards
-- **Llama Champion** — Model runs through llama.cpp runtime locally
-- **Off the Grid** — No cloud APIs, all inference on local models or Modal-hosted endpoints
-- **Sharing is Caring** — Cards exportable as `.apkg`/`.csv`; card datasets shareable via Hugging Face Hub
-
 ## Setup
 
 ### Local Development
