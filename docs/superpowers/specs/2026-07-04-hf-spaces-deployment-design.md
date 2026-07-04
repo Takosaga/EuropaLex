@@ -66,9 +66,23 @@ diffusers>=0.28.0
 - `spaces` — ZeroGPU GPU context management
 - `hf_transfer` — faster model downloads via parallel HTTP
 
-### 3. `.gitignore` — No changes
+### 3. `README.md` — Add HF Spaces YAML frontmatter + remove hackathon criteria
 
-Per user decision. Model weights are already handled by existing patterns.
+Add YAML frontmatter block at top of README (HF Spaces reads this for deployment config):
+```yaml
+---
+title: EuropaLex Flashcards
+emoji: 🌍
+colorFrom: purple
+colorTo: yellow
+sdk: gradio
+sdk_version: 6.19.0
+python_version: '3.13'
+app_file: app.py
+pinned: false
+---
+```
+Remove the "Hackathon Criteria" section — no longer relevant post-hackathon.
 
 ## What stays the same
 
