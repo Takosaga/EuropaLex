@@ -127,6 +127,7 @@ _current_cards: list[dict] = []  # Full card data after Phase 2 (with media path
 
 
 
+@gpu
 def generate_text_async(
     scenario: str,
     cefr_level: str,
@@ -324,10 +325,12 @@ def generate_media_async(
 
     for i, english_text in enumerate(_current_texts):
         try:
-            translation = translation_engine._translate_single(
-                english_text, cefr,
-                topic_description=scenario,
-                target_language=target_language,
+            @gpu
+            def _translate_single(engine, text, cefr, scenario, lang):
+                return engine._translate_single(text, cefr, topic_description=scenario, target_language=lang)
+
+            translation = _translate_single(
+                translation_engine, english_text, cefr, scenario, target_language
             )
         except Exception as e:
             logger.error("Translation failed for sentence %d: %s", i, e, exc_info=True)
@@ -358,7 +361,13 @@ def generate_media_async(
             tts_engine = pool.get_tts_engine()
             output_dir = Path(config.models_dir) / "output" / "audio"
             translations_list = [c["translation"] for c in cards]
-            audio_result = tts_engine.synthesize(translations_list, output_dir, language=target_language, instruct=voice)
+            @gpu
+            def _synthesize(engine, texts, output_dir, language, instruct):
+                return engine.synthesize(texts, output_dir, language=language, instruct=instruct)
+
+            audio_result = _synthesize(
+                tts_engine, translations_list, output_dir, target_language, voice
+            )
             audio_paths = audio_result.audio_paths
 
             # Attach audio paths to cards
@@ -387,7 +396,11 @@ def generate_media_async(
                     f"Simple educational illustration with NO TEXT for language learning for the following text: {card['text']}. "
                 )
                 prompts.append(prompt)
-            image_result = img_engine.generate(prompts, output_dir)
+            @gpu
+            def _generate_images(engine, prompts, output_dir):
+                return engine.generate(prompts, output_dir)
+
+            image_result = _generate_images(img_engine, prompts, output_dir)
             image_paths = image_result.image_paths
             # Attach image paths to cards
             for i, path in enumerate(image_paths):
