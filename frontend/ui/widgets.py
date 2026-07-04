@@ -328,6 +328,7 @@ def build_ui() -> "gr.Blocks":
             logger = logging.getLogger(__name__)
             
             phase1_count = len(_app_module._phase1_state['texts'])
+            print(f"[PHASE2] _app_module._phase1_state has {phase1_count} texts", flush=True)
             logger.info("Phase 2 start: _phase1_state has %d items", phase1_count)
             
             if not _app_module._phase1_state['texts']:
