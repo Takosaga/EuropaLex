@@ -1,7 +1,7 @@
 ---
-title: EuropaLex Flashcards
-emoji: 🌍
-colorFrom: purple
+title: EuropaLex - EU Language Learning
+emoji: 🇪🇺
+colorFrom: blue
 colorTo: yellow
 sdk: gradio
 sdk_version: 6.19.0
