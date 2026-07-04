@@ -323,6 +323,12 @@ def build_ui() -> "gr.Blocks":
 
             Reads _phase1_texts from app module (via module ref to survive rebinding).
             """
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            phase1_count = len(_app_module._phase1_texts) if hasattr(_app_module, '_phase1_texts') else 0
+            logger.info("Phase 2 start: _phase1_texts has %d items", phase1_count)
+            
             if not _app_module._phase1_texts:
                 yield generate_progress_html(0, "⚠️ Please generate text first."), (
                     '<div style="color:#c44; padding:20px;">'
