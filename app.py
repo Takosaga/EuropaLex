@@ -86,10 +86,8 @@ logger = logging.getLogger(__name__)
 # ─── ZeroGPU support for HF Spaces ──────────────────────
 try:
     import spaces
-    _HF_SPACES = True
     def gpu(fn): return spaces.GPU(duration=120)(fn)
 except ImportError:
-    _HF_SPACES = False
     def gpu(fn): return fn  # no-op locally
 
 # ─── Auto-download models on first run ────────────────────────
