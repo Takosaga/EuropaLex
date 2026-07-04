@@ -331,7 +331,12 @@ def build_ui() -> "gr.Blocks":
             _app_module = sys.modules.get('app', sys.modules['__main__'])
             
             phase1_count = len(_app_module._phase1_texts) if hasattr(_app_module, '_phase1_texts') else 0
-            print(f"[DEBUG PHASE2] _phase1_texts has {phase1_count} items. _app_module id: {id(_app_module)}, __main__ id: {id(sys.modules['__main__'])}, 'app' in sys.modules: {'app' in sys.modules}", flush=True)
+            print(f"[DEBUG PHASE2] _phase1_texts has {phase1_count} items. Module: {id(_app_module)}, __main__: {id(sys.modules['__main__'])}, 'app' in modules: {'app' in sys.modules}", flush=True)
+            
+            # Check if _app_module is actually the right module
+            if hasattr(_app_module, '_phase1_texts'):
+                print(f"[DEBUG PHASE2] Type of _phase1_texts: {type(_app_module._phase1_texts)}, Value: {_app_module._phase1_texts[:2] if _app_module._phase1_texts else 'empty'}", flush=True)
+            
             logger.info("Phase 2 start: _phase1_texts has %d items", phase1_count)
             logger.info("_app_module id: %s, sys.modules['app'] id: %s, __main__ id: %s", id(_app_module), id(sys.modules.get('app', None)), id(sys.modules['__main__']))
             
