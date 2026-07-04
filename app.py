@@ -247,6 +247,9 @@ def generate_text_async(
 
     yield generate_progress_html(60, "Generating text..."), ""
     yield generate_progress_html(100, "Text ready! Adjust media toggles and click Generate Cards."), generate_cards_html(cards, include_image=False, include_audio=False, placeholder_back=True)
+    
+    # Check state AFTER last yield (before generator exits)
+    print(f"[DEBUG PHASE1-AFTER-YIELD] _phase1_state['texts'] = {_phase1_state['texts']}", flush=True)
 
 
 def _progress_pct(
