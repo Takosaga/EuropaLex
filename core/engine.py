@@ -203,6 +203,13 @@ class LlamaCppTextEngine:
             Translated string, or the original English text as fallback.
         """
         self._load_model()
+        # Reset KV cache between translations — accumulated context corrupts
+        # CUDA state on subsequent decode calls (launch_mul_mat_q invalid arg).
+        if self._llm is not None:
+            try:
+                self._llm.reset()
+            except Exception:
+                pass
         effective_lang = target_language or self.target_language
         base_messages = [
             {
