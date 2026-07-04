@@ -2,6 +2,10 @@
 # Custom styled Gradio widget wrappers + full UI layout builder
 
 import logging
+import warnings
+
+# Suppress Starlette deprecation warnings from Gradio internals
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="starlette")
 
 
 def create_toggle(label: str, value: bool = True, elem_id: str = "") -> "gr.Checkbox":
@@ -210,10 +214,14 @@ def build_ui() -> "gr.Blocks":
         Configured gr.Blocks instance with all events wired.
     """
     import gradio as gr
+    import sys
 
     # Import business logic handlers INSIDE build_ui to avoid circular import
     from app import generate_text_async, generate_media_async
-    import app as _app_module  # access _phase1_texts via module ref (rebinding in app.py won't break the reference)
+
+    # Reference to the running script module — always __main__ on HF Spaces,
+    # never `import app` (which would load a second copy and lose shared state)
+    _app_module = sys.modules.get('app', sys.modules['__main__'])
 
     from frontend.ui.cards import generate_cards_html, generate_progress_html
 
@@ -315,11 +323,23 @@ def build_ui() -> "gr.Blocks":
                 yield result
 
         def _handle_media_generation_v2(scenario: str, cefr_level: str, batch_size: int, target_language: str, include_audio: bool, include_images: bool, voice: str):
-            """Wrapper for generate_media_async that handles empty scenario and missing Phase 1 texts.
-
-            Reads _phase1_texts from app module (via module ref to survive rebinding).
-            """
-            if not _app_module._phase1_texts:
+            """Wrapper for generate_media_async that handles empty scenario and missing Phase 1 texts."""
+            import logging
+            from app import _load_phase1_state
+            logger = logging.getLogger(__name__)
+            
+            # Load persisted state BEFORE checking (survives container suspension)
+            loaded = _load_phase1_state()
+            _app_module._phase1_state['texts'] = loaded.get('texts', [])
+            _app_module._phase1_state['scenario'] = loaded.get('scenario', '')
+            _app_module._phase1_state['cefr_level'] = loaded.get('cefr_level', '')
+            _app_module._phase1_state['batch_size'] = loaded.get('batch_size', 0)
+            
+            phase1_count = len(_app_module._phase1_state['texts'])
+            print(f"[PHASE2] _app_module._phase1_state has {phase1_count} texts", flush=True)
+            logger.info("Phase 2 start: _phase1_state has %d items", phase1_count)
+            
+            if not _app_module._phase1_state['texts']:
                 yield generate_progress_html(0, "⚠️ Please generate text first."), (
                     '<div style="color:#c44; padding:20px;">'
                     'No Phase 1 text found. Generate English text first, then click "Generate Cards".'
@@ -342,6 +362,9 @@ def build_ui() -> "gr.Blocks":
             Phase 2 completes (when _current_cards is populated).
             """
             import gradio as gr
+            # Clear persisted phase1 state so Phase 2 can't accidentally re-read stale data
+            from app import _clear_phase1_state
+            _clear_phase1_state()
             return (
                 gr.Button(visible=False),        # generate_text_btn
                 gr.Button(visible=False),       # generate_cards_btn
@@ -378,7 +401,7 @@ def build_ui() -> "gr.Blocks":
         ).then(
             fn=_restore_generate_cards_button,
             inputs=[],
-            outputs=[generate_cards_btn, export_csv_btn],
+            outputs=[generate_cards_btn, export_csv_btn, export_apkg_btn],
         )
 
         generate_cards_btn.click(
