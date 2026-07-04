@@ -203,13 +203,13 @@ class LlamaCppTextEngine:
             Translated string, or the original English text as fallback.
         """
         self._load_model()
-        # Reset KV cache between translations — accumulated context corrupts
-        # CUDA state on subsequent decode calls (launch_mul_mat_q invalid arg).
+        # Unload + reload between cards to get a fresh CUDA context.
+        # llama-cpp-python's Llama.reset() only clears KV cache / token history
+        # — it does NOT reset the CUDA graph state, which accumulates stale
+        # allocations across decode calls and triggers launch_mul_mat_q errors.
         if self._llm is not None:
-            try:
-                self._llm.reset()
-            except Exception:
-                pass
+            self.unload()
+            self._load_model()
         effective_lang = target_language or self.target_language
         base_messages = [
             {
