@@ -2,6 +2,10 @@
 # Custom styled Gradio widget wrappers + full UI layout builder
 
 import logging
+import warnings
+
+# Suppress Starlette deprecation warnings from Gradio internals
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="starlette")
 
 
 def create_toggle(label: str, value: bool = True, elem_id: str = "") -> "gr.Checkbox":
@@ -378,7 +382,7 @@ def build_ui() -> "gr.Blocks":
         ).then(
             fn=_restore_generate_cards_button,
             inputs=[],
-            outputs=[generate_cards_btn, export_csv_btn],
+            outputs=[generate_cards_btn, export_csv_btn, export_apkg_btn],
         )
 
         generate_cards_btn.click(
