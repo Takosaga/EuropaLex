@@ -222,6 +222,7 @@ def build_ui() -> "gr.Blocks":
     # Reference to the running script module — always __main__ on HF Spaces,
     # never `import app` (which would load a second copy and lose shared state)
     _app_module = sys.modules.get('app', sys.modules['__main__'])
+    print(f"[BUILD_UI] _app_module id={id(_app_module)}, 'app' in sys.modules: {'app' in sys.modules}, '__main__' in sys.modules: {'__main__' in sys.modules}", flush=True)
 
     from frontend.ui.cards import generate_cards_html, generate_progress_html
 
@@ -332,10 +333,20 @@ def build_ui() -> "gr.Blocks":
             import threading
             logger = logging.getLogger(__name__)
             
+            # FIRST THING: check state before any other logic
+            initial_texts = _app_module._phase1_state.get('texts', [])
+            print(f"[DEBUG PHASE2-FIRST] texts={initial_texts}, id(_phase1_state)={id(_app_module._phase1_state)}", flush=True)
+            
             # Aggressive debug: trace module identity for Phase 1->2 state sharing
             print(f"\n{'='*60}", flush=True)
             print(f"[DEBUG PHASE2] Thread: {threading.get_ident()}", flush=True)
-            print(f"[DEBUG PHASE2] _app_module (sys.modules['__main__']): id={id(_app_module)}", flush=True)
+            print(f"[DEBUG PHASE2] _app_module id={id(_app_module)}, type={type(_app_module).__name__}", flush=True)
+            print(f"[DEBUG PHASE2] 'app' in sys.modules: {'app' in sys.modules}", flush=True)
+            if 'app' in sys.modules:
+                print(f"[DEBUG PHASE2] sys.modules['app'] id={id(sys.modules['app'])}", flush=True)
+            print(f"[DEBUG PHASE2] '__main__' in sys.modules: {'__main__' in sys.modules}", flush=True)
+            if '__main__' in sys.modules:
+                print(f"[DEBUG PHASE2] sys.modules['__main__'] id={id(sys.modules['__main__'])}", flush=True)
             print(f"[DEBUG PHASE2] globals() id: {id(globals())}", flush=True)
             print(f"[DEBUG PHASE2] sys.modules keys with 'app' or 'main': {[k for k in sys.modules if 'app' in k.lower() or 'main' in k.lower()]}", flush=True)
             

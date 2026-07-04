@@ -295,6 +295,7 @@ def generate_media_async(
         _current_texts = list(_phase1_state['texts'])
     
     print(f"[DEBUG MEDIA-START] _phase1_state id={id(_phase1_state)}, texts={_current_texts}, module={type(_phase1_state).__module__}", flush=True)
+    print(f"[DEBUG MEDIA-START] sys.modules keys with 'app' or 'main': {[k for k in sys.modules if 'app' in k.lower() or 'main' in k.lower()]}", flush=True)
 
     if not _current_texts:
         from frontend.ui.cards import generate_progress_html
