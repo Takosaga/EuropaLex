@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,7 +21,12 @@ _engines: dict[str, Any] = {}
 _preload_success = False
 
 class _LazyEngineWrapper:
-    """Lazy-loading fallback wrapper for engines that failed to pre-load."""
+    """Lazy-loading fallback wrapper for engines that failed to pre-load.
+    
+    In HF Spaces, torchaudio/torch mismatches may prevent TTS/Image engines
+    from loading. This wrapper will attempt on-demand but fail gracefully if
+    the underlying import still fails.
+    """
     
     def __init__(self, name: str, factory_func):
         self.name = name
@@ -38,8 +44,15 @@ class _LazyEngineWrapper:
                     engine._load_pipeline()
                 self._engine = engine
                 logger.info("Loaded fallback %s engine", self.name)
-            except Exception as e:
-                raise RuntimeError(f"Failed to load {self.name} engine: {e}")
+            except ImportError as e:
+                # For HF Space environment issues, provide clearer error
+                if 'torch_library_impl' in str(e) or 'torchaudio' in str(e):
+                    raise RuntimeError(
+                        f"Failed to load {self.name} engine due to torch/torchaudio version mismatch. "
+                        f"This is common in Hugging Face Spaces with custom CUDA builds.\n"
+                        f"Please report this to the maintainer or try using the app without audio/image generation."
+                    ) from e
+                raise RuntimeError(f"Failed to load {self.name} engine: {e}") from e
         return self._engine
     
     def __getattr__(self, item):
@@ -60,12 +73,21 @@ def _preload_all_models() -> None:
         _preload_success = False  # will retry on first use
         return
     
+    # HF Spaces often have torchaudio/torch version mismatches.
+    # For TTS/Image engines, skip preloading and defer to lazy loading.
+    # Text engines (MiniCPM/LlamaCpp) don't depend on torchaudio.
+    is_hf_space = Path('/home/space/app').exists() or 'HF_SPACE' in os.environ
+    
     engines_to_load = [
         ('english', lambda: MiniCPMTextEngine(config.minicpm_model_path, config.device)),
         ('translation', lambda: LlamaCppTextEngine(config.llm_model_path, config.device, config.target_language)),
-        ('tts', lambda: TTSEngine(device=config.device)),
-        ('image', lambda: ImageGenEngine(device=config.device)),
     ]
+    
+    if not is_hf_space:
+        engines_to_load.extend([
+            ('tts', lambda: TTSEngine(device=config.device)),
+            ('image', lambda: ImageGenEngine(device=config.device)),
+        ])
     
     for name, factory in engines_to_load:
         try:
