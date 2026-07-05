@@ -8,13 +8,14 @@ import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="starlette")
 
 
-def create_toggle(label: str, value: bool = True, elem_id: str = "") -> "gr.Checkbox":
+def create_toggle(label: str, value: bool = True, elem_id: str = "", visible: bool = True) -> "gr.Checkbox":
     """Create a styled toggle checkbox for media options.
 
     Args:
         label: Display label with emoji (e.g., '🖼️ Images').
         value: Default checked state.
         elem_id: Optional Gradio element ID.
+        visible: Whether the toggle is visible. Defaults to True.
 
     Returns:
         Configured gr.Checkbox instance.
@@ -25,6 +26,7 @@ def create_toggle(label: str, value: bool = True, elem_id: str = "") -> "gr.Chec
         label=label,
         value=value,
         elem_id=elem_id if elem_id else "toggle-" + label.lower().replace(" ", "-").replace("🖼️", "img").replace("🔊", "audio"),
+        visible=visible,
     )
 
 
@@ -216,6 +218,9 @@ def build_ui() -> "gr.Blocks":
     import gradio as gr
     import sys
 
+    # Check media availability for HF Spaces compatibility
+    from core.engine import _TTS_AVAILABLE, _IMAGE_AVAILABLE
+    
     # Import business logic handlers INSIDE build_ui to avoid circular import
     from app import generate_text_async, generate_media_async
 
@@ -275,10 +280,10 @@ def build_ui() -> "gr.Blocks":
                         elem_id="language-dropdown",
                     )
                 with gr.Row():
-                    audio_toggle = create_toggle("🔊 Audio", value=True, elem_id="toggle-audio")
-                    images_toggle = create_toggle("🖼️ Images", value=True, elem_id="toggle-images")
+                    audio_toggle = create_toggle("🔊 Audio", value=True, elem_id="toggle-audio", visible=_TTS_AVAILABLE)
+                    images_toggle = create_toggle("🖼️ Images", value=True, elem_id="toggle-images", visible=_IMAGE_AVAILABLE)
 
-                voice_dropdown = create_voice_dropdown()  # visible but disabled via CSS until Phase 2 + audio ON
+                voice_dropdown = create_voice_dropdown(visible=_TTS_AVAILABLE)  # hidden if TTS unavailable
 
                 generate_cards_btn = gr.Button("Generate Cards", elem_id="generate-cards-btn", variant="secondary")
 

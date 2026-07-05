@@ -543,3 +543,26 @@ class EnginePool:
 
 # Pre-load all models at module import time
 _preload_all_models()
+
+# Check if TTS/Image are available (for UI conditional rendering)
+def _check_media_availability() -> tuple[bool, bool]:
+    """Check if TTS and Image generation engines are functional.
+    
+    Returns:
+        Tuple of (tts_available, image_available) booleans.
+    """
+    import os
+    from pathlib import Path
+    is_hf_space = Path('/home/space/app').exists() or 'HF_SPACE' in os.environ
+    if is_hf_space:
+        # HF Spaces often have torchaudio/torch mismatches
+        return False, False
+    try:
+        import torchaudio
+        import torch
+        # Basic sanity check - can we import the modules?
+        return True, True
+    except Exception:
+        return False, False
+
+_TTS_AVAILABLE, _IMAGE_AVAILABLE = _check_media_availability()
