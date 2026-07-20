@@ -109,7 +109,8 @@ def test_translate_single_success():
     mock_llm = MagicMock()
     mock_llm.create_chat_completion.return_value = {"choices": [{"message": {"content": "Sveiki."}}]}
 
-    with patch.object(LlamaCppTextEngine, "_load_model"):
+    with patch.object(LlamaCppTextEngine, "_load_model"), \
+         patch.object(LlamaCppTextEngine, "unload"):
         engine = LlamaCppTextEngine.__new__(LlamaCppTextEngine)
         engine._llm = mock_llm
         engine._loaded = True
@@ -129,7 +130,8 @@ def test_translate_single_retry_on_invalid():
         {"choices": [{"message": {"content": "Paldies."}}]},
     ]
 
-    with patch.object(LlamaCppTextEngine, "_load_model"):
+    with patch.object(LlamaCppTextEngine, "_load_model"), \
+         patch.object(LlamaCppTextEngine, "unload"):
         engine = LlamaCppTextEngine.__new__(LlamaCppTextEngine)
         engine._llm = mock_llm
         engine._loaded = True
@@ -147,7 +149,8 @@ def test_translate_single_exhausted_retries_fallback():
     # All 3 attempts return invalid output (empty string)
     mock_llm.create_chat_completion.return_value = {"choices": [{"message": {"content": ""}}]}
 
-    with patch.object(LlamaCppTextEngine, "_load_model"):
+    with patch.object(LlamaCppTextEngine, "_load_model"), \
+         patch.object(LlamaCppTextEngine, "unload"):
         engine = LlamaCppTextEngine.__new__(LlamaCppTextEngine)
         engine._llm = mock_llm
         engine._loaded = True
@@ -167,7 +170,8 @@ def test_translate_single_multiline_rejected():
         {"choices": [{"message": {"content": "Paldies."}}]},  # valid (no English words)
     ]
 
-    with patch.object(LlamaCppTextEngine, "_load_model"):
+    with patch.object(LlamaCppTextEngine, "_load_model"), \
+         patch.object(LlamaCppTextEngine, "unload"):
         engine = LlamaCppTextEngine.__new__(LlamaCppTextEngine)
         engine._llm = mock_llm
         engine._loaded = True
@@ -191,7 +195,8 @@ def test_generate_calls_per_sentence():
     ]
     mock_llm.create_chat_completion.side_effect = responses
 
-    with patch.object(LlamaCppTextEngine, "_load_model"):
+    with patch.object(LlamaCppTextEngine, "_load_model"), \
+         patch.object(LlamaCppTextEngine, "unload"):
         engine = LlamaCppTextEngine.__new__(LlamaCppTextEngine)
         engine._llm = mock_llm
         engine._loaded = True

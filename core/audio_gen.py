@@ -99,14 +99,4 @@ class TTSEngine:
 
         return AudioResult(audio_paths=list(audio_paths))
 
-    def unload(self) -> None:
-        """Unload the model and free GPU memory."""
-        if self._model is not None:
-            del self._model
-            self._model = None
-            self._loaded = False
-            try:
-                torch.cuda.empty_cache()
-            except Exception:
-                pass
-            logger.info("OmniVoice model unloaded")
+
