@@ -30,6 +30,7 @@ def create_toggle(label: str, value: bool = True, elem_id: str = "") -> "gr.Chec
 
 def create_voice_dropdown(
     default_voice: str = "female, young adult",
+    visible: bool = True,
 ) -> "gr.Dropdown":
     """Create a voice selection dropdown for TTS audio generation.
 
@@ -60,7 +61,7 @@ def create_voice_dropdown(
         value=default_voice,
         elem_id="voice-dropdown",
         allow_custom_value=True,
-        visible=True,
+        visible=visible,
     )
 
 
