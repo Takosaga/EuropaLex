@@ -86,7 +86,7 @@ User input → app.py click handler → EnginePool.get(config) → MiniCPMTextEn
 
 When adding a new feature, follow this chain. Phase 1 uses `MiniCPMTextEngine` directly; Phase 2 translation goes through `pipeline.generate_phase2()`.
 
-**EnginePool singleton:** Manages mutual exclusion between all GPU engines: `MiniCPMTextEngine` (~1.1 GB RAM), `LlamaCppTextEngine` (translation, ~2 GB VRAM), `TTSEngine` (TTS), and `ImageGenEngine` (images). Only one can be loaded at a time.
+**EnginePool singleton:** Provides access to **pre-loaded** engine instances. All models are loaded at module import for zeroGPU deployment. The EnginePool accessor pattern maintains backward compatibility with the old `EnginePool.get(config)` factory method.
 
 ## Frontend Patterns
 
@@ -202,24 +202,39 @@ Other Pydantic models:
 
 ### engine.py
 
-Five concrete engine classes replace the legacy `InferenceEngine` protocol:
+Five concrete engine classes provide inference backends:
 
 | Class | Backend | Lifecycle |
 |---|---|---|
-| `MiniCPMTextEngine` | llama-cpp-python (GGUF) | Lazy-load on first `.generate()`, unload after completion (~1.1 GB RAM). Uses `apply_chat_template`. Validates output sentence count against `batch_size`; retries with stricter prompts on mismatch (max 3 attempts). Used in Phase 1 for English text generation. |
-| `LlamaCppTextEngine` | llama-cpp-python (GGUF) | Lazy-load on first `.generate()`, unload after completion (~2 GB VRAM). Validates output line count against `batch_size`; retries with stricter prompts on mismatch (max 3 attempts). Used in Phase 2 for translation. |
-| `TTSEngine` | omnivoice (PyTorch) | Lazy-load on first `.synthesize()`, unload after completion. Accepts `instruct` parameter for voice design mode (defaults to `"female, young adult"`). Used in Phase 2 for TTS audio. |
-| `ImageGenEngine` | diffusers Flux2KleinPipeline (PyTorch) | Lazy-load on first `.generate()`, unload after completion. Image generation toggle is available but not yet wired into the pipeline. |
-| `EnginePool` | Singleton factory | Manages mutual exclusion between all GPU engines. Phase 1 uses only `MiniCPMTextEngine` (~1.1 GB RAM). Phase 2 loads GPU engines sequentially: translation → TTS/images. |
+| `MiniCPMTextEngine` | llama-cpp-python (GGUF) | Pre-loaded at module import for zeroGPU. Uses `apply_chat_template`. Validates output sentence count against `batch_size`; retries with stricter prompts on mismatch (max 3 attempts). Used in Phase 1 for English text generation. |
+| `LlamaCppTextEngine` | llama-cpp-python (GGUF) | Pre-loaded at module import for zeroGPU. Validates output line count against `batch_size`; retries with stricter prompts on mismatch (max 3 attempts). Used in Phase 2 for translation. |
+| `TTSEngine` | omnivoice (PyTorch) | Pre-loaded at module import for zeroGPU. Accepts `instruct` parameter for voice design mode (defaults to `"female, young adult"`). Used in Phase 2 for TTS audio. |
+| `ImageGenEngine` | diffusers Flux2KleinPipeline (PyTorch) | Pre-loaded at module import for zeroGPU. Image generation toggle is available but not yet wired into the pipeline. |
+| `EnginePool` | Singleton accessor | Returns pre-loaded engine instances. Maintains backward compatibility with `EnginePool.get(config)` pattern. |
 
 **Rules:**
 - All inference goes through `EnginePool.get(config)` — never instantiate engines directly in app code.
-- All engines (MiniCPMTextEngine, LlamaCppTextEngine, TTSEngine, ImageGenEngine) are lazy-loaded and unloaded via `del` + `torch.cuda.empty_cache()`.
+- Models are **pre-loaded at module import time** for zeroGPU (Hugging Face Spaces) support. This reserves VRAM but ensures fast response times.
 - Each engine class should be self-contained. Don't share state between implementations.
 
 **MiniCPMTextEngine validation:** `generate()` wraps the LLM call in a retry loop (max 3 attempts). Each attempt uses `TextResult.validate_and_parse(raw_text, expected_count=batch_size)` as its validation gate — stripping `<thinking>` tags, splitting lines, and enforcing exact count in one call. On mismatch, `_build_retry_prompt()` constructs a stricter prompt referencing the actual vs expected count, appended as a new user message in the same conversation context. On exhaustion, raises `ValidationError` with `raw_output` attached for debugging. Do not bypass this loop — it is the contract enforcement layer between LLM output and `TextResult`.
 
 **LlamaCppTextEngine validation:** `generate()` wraps the LLM call in a retry loop (max 3 attempts). If output line count does not match `batch_size`, `_build_retry_prompt()` constructs a stricter prompt referencing actual vs expected count. On exhaustion with zero lines, raises `ValidationError` with `raw_output`; on exhaustion with partial lines, returns whatever was produced. Do not bypass this loop.
+
+### ZeroGPU Considerations for Hugging Face Spaces
+
+When deploying to Hugging Face Spaces with **ZeroGPU**, models must be loaded at module level (outside `@spaces.GPU` functions). This pattern:
+- Loads all 4 models when the module imports (before any user request)
+- Places them on `cuda` via PyTorch's CUDA emulation mode
+- Triggers actual GPU allocation when the `@spaces.GPU` decorator executes
+- Reserves ~12GB VRAM continuously, but provides fast cold-start response times
+- Avoids inefficient lazy-loading inside `@spaces.GPU` functions (as documented by Hugging Face)
+
+The EnginePool singleton returns pre-loaded instances. No unloading occurs between requests — models stay resident for the Space runtime.
+
+**VRAM Requirements:**
+- NVIDIA RTX PRO 6000 Blackwell (48GB) provides ample headroom for all 4 models simultaneously.
+- If deploying with less VRAM, consider quantization or on-demand loading patterns.
 
 ### pipeline.py
 

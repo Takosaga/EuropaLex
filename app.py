@@ -190,26 +190,9 @@ def generate_text_async(
     """
     # Load config and get engine
     try:
-        from core.engine import EnginePool, MiniCPMTextEngine, LlamaCppTextEngine, TTSEngine
-        from core.types import CEFRLevel, EngineConfig
+        from core.engine import EnginePool
+        from core.types import CEFRLevel
         from frontend.ui.cards import generate_progress_html
-
-        config = EngineConfig.from_settings_yaml()
-        pool = EnginePool.get(config)
-
-        # Pre-load all Phase 1+2 engines in one GPU session to minimize
-        # ZeroGPU proxy token refreshes on HF Spaces.
-        # ponytail: text engines are small (~3GB total) vs image model (~8GB);
-        # load them first, unload after Phase 1, then only load image engine later.
-        print("[ENGINE] Pre-loading translation engine...", flush=True)
-        pool.get_translation_engine()
-        print("[ENGINE] Pre-loading TTS engine...", flush=True)
-        pool.get_tts_engine()
-
-        # Now unload text engines — Phase 2 only needs image engine
-        print("[ENGINE] Unloading translation + TTS engines to free VRAM...", flush=True)
-        pool._unload_translation()
-        pool._unload_tts()
 
         cefr = CEFRLevel(cefr_level)
     except FileNotFoundError as e:
@@ -237,7 +220,7 @@ def generate_text_async(
     # Generate English text via MiniCPM5-1B
     try:
         yield generate_progress_html(20, "Preparing MiniCPM5-1B generation..."), ""
-        engine = pool.get_english_engine()
+        engine = EnginePool.get_english_engine()
         texts = engine.generate(
             texts=[],  # empty = generation mode (not translation)
             scenario=scenario,
@@ -342,7 +325,6 @@ def generate_media_async(
         from frontend.ui.cards import generate_progress_html, generate_cards_html
 
         config = EngineConfig.from_settings_yaml()
-        pool = EnginePool.get(config)
         cefr = CEFRLevel(cefr_level)
     except FileNotFoundError as e:
         logger.error("Phase 2 model not found: %s", e)
@@ -368,10 +350,9 @@ def generate_media_async(
 
     yield generate_progress_html(10, "Preparing translation engine..."), ""
 
-    # Get the translation engine (pre-loaded above in this GPU session)
+    # Get the translation engine (pre-loaded at module level)
     try:
-        from core.engine import LlamaCppTextEngine
-        translation_engine = pool.get_translation_engine()
+        translation_engine = EnginePool.get_translation_engine()
     except Exception as e:
         logger.error("Phase 2 failed to get translation engine: %s", e, exc_info=True)
         err_detail = str(e)
@@ -423,7 +404,7 @@ def generate_media_async(
         )
         try:
             from core.audio_gen import TTSEngine
-            tts_engine = pool.get_tts_engine()
+            tts_engine = EnginePool.get_tts_engine()
             output_dir = Path(config.models_dir) / "output" / "audio"
             translations_list = [c["translation"] for c in cards]
             @gpu
@@ -452,7 +433,7 @@ def generate_media_async(
         )
         try:
             from core.image_gen import ImageGenEngine
-            img_engine = pool.get_image_engine()
+            img_engine = EnginePool.get_image_engine()
             output_dir = Path(config.models_dir) / "output" / "images"
             # Build prompts from English text + CEFR level
             prompts = []

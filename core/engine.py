@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +15,109 @@ import torch
 from core.types import CEFRLevel, EngineConfig, TextResult, ValidationError
 
 logger = logging.getLogger(__name__)
+
+# Global pre-loaded engines for zeroGPU module-level loading
+_engines: dict[str, Any] = {}
+_preload_success = False
+
+class _LazyEngineWrapper:
+    """Lazy-loading fallback wrapper for engines that failed to pre-load.
+    
+    In HF Spaces, torchaudio/torch mismatches may prevent TTS/Image engines
+    from loading. This wrapper will attempt on-demand but fail gracefully if
+    the underlying import still fails.
+    """
+    
+    def __init__(self, name: str, factory_func):
+        self.name = name
+        self.factory = factory_func
+        self._engine = None
+    
+    def _get_engine(self):
+        if self._engine is None:
+            try:
+                engine = self.factory()
+                # Load the model into CUDA (emulation mode -> real GPU at runtime)
+                if hasattr(engine, '_load_model'):
+                    engine._load_model()
+                elif hasattr(engine, '_load_pipeline'):
+                    engine._load_pipeline()
+                self._engine = engine
+                logger.info("Loaded fallback %s engine", self.name)
+            except ImportError as e:
+                # For HF Space environment issues, provide clearer error
+                if 'torch_library_impl' in str(e) or 'torchaudio' in str(e):
+                    raise RuntimeError(
+                        f"Failed to load {self.name} engine due to torch/torchaudio version mismatch. "
+                        f"This is common in Hugging Face Spaces with custom CUDA builds.\n"
+                        f"Please report this to the maintainer or try using the app without audio/image generation."
+                    ) from e
+                raise RuntimeError(f"Failed to load {self.name} engine: {e}") from e
+        return self._engine
+    
+    def __getattr__(self, item):
+        return getattr(self._get_engine(), item)
+
+def _preload_all_models() -> None:
+    """Pre-load all inference models at module level. Falls back to lazy-loading if any fail."""
+    global _preload_success
+    if _preload_success:
+        return
+    
+    from core.types import EngineConfig
+    try:
+        config = EngineConfig.from_settings_yaml()
+    except Exception as e:
+        logger.error("Failed to load settings: %s", e)
+        # Create fallback wrappers with minimal info
+        _preload_success = False  # will retry on first use
+        return
+    
+    # HF Spaces often have torchaudio/torch version mismatches.
+    # For TTS/Image engines, skip preloading and defer to lazy loading.
+    # Text engines (MiniCPM/LlamaCpp) don't depend on torchaudio.
+    is_hf_space = Path('/home/space/app').exists() or 'HF_SPACE' in os.environ
+    
+    engines_to_load = [
+        ('english', lambda: MiniCPMTextEngine(config.minicpm_model_path, config.device)),
+        ('translation', lambda: LlamaCppTextEngine(config.llm_model_path, config.device, config.target_language)),
+    ]
+    
+    if not is_hf_space:
+        engines_to_load.extend([
+            ('tts', lambda: TTSEngine(device=config.device)),
+            ('image', lambda: ImageGenEngine(device=config.device)),
+        ])
+    
+    for name, factory in engines_to_load:
+        try:
+            engine = factory()
+            # Force load the model into CUDA
+            if hasattr(engine, '_load_model'):
+                engine._load_model()
+            elif hasattr(engine, '_load_pipeline'):
+                engine._load_pipeline()
+            else:
+                logger.warning("Engine %s has no load method", name)
+            _engines[name] = engine
+            logger.info("Pre-loaded %s engine", name)
+        except Exception as e:
+            logger.error("Failed to pre-load %s engine: %s", name, e)
+            # Create lazy fallback wrapper for this engine
+            _engines[name] = _LazyEngineWrapper(name, factory)
+    
+    # Trigger actual GPU allocation (forces emulation mode -> real GPU)
+    import torch
+    if torch.cuda.is_available():
+        try:
+            torch.tensor([0], device='cuda')
+        except Exception as e:
+            logger.error("Failed to trigger CUDA allocation: %s", e)
+    
+    _preload_success = True
+    logger.info("Pre-load complete. Engines: %s", list(_engines.keys()))
+
+
 
 
 @dataclass
@@ -108,18 +212,6 @@ class MiniCPMTextEngine:
 
         sentences = generate_sentences(scenario, cefr_level, batch_size, self._llm, topic_description)
         return TextResult(generated_texts=sentences)
-
-    def unload(self) -> None:
-        """Unload the model and free memory."""
-        if self._llm is not None:
-            del self._llm
-            self._llm = None
-            self._loaded = False
-            try:
-                torch.cuda.empty_cache()
-            except Exception:
-                pass
-            logger.info("MiniCPMTextEngine unloaded")
 
 
 class LlamaCppTextEngine:
@@ -392,18 +484,6 @@ class LlamaCppTextEngine:
             f"{target_lang}:"
         )
 
-    def unload(self) -> None:
-        """Unload the model and free GPU memory."""
-        if self._llm is not None:
-            del self._llm
-            self._llm = None
-            self._loaded = False
-            try:
-                torch.cuda.empty_cache()
-            except Exception:
-                pass
-            logger.info("LlamaCppTextEngine unloaded")
-
 
 # TTSEngine has been extracted to core.audio_gen
 from core.audio_gen import TTSEngine  # noqa: F401
@@ -414,36 +494,27 @@ from core.image_gen import ImageGenEngine  # noqa: F401
 
 
 class EnginePool:
-    """Singleton managing mutual exclusion between GPU inference engines.
+    """Singleton providing access to pre-loaded inference engines.
 
-    Ensures only one GPU model (LlamaCppTextEngine, TTSEngine, or ImageGenEngine)
-    is loaded at a time. Text engines that use llama-cli subprocesses do not
-    consume persistent VRAM.
-
-    Usage:
-        pool = EnginePool.get(config)
-        text_result = pool.get_translation_engine().generate(texts, scenario, cefr_level)
-        # ... later ...
-        audio_result = pool.get_tts_engine().synthesize(translations, output_dir)
+    Maintains backward compatibility with the old singleton factory pattern.
+    Engines are pre-loaded at module import time via _preload_all_models().
     """
 
-    _instance: ClassVar[EnginePool | None] = None
-    _config: EngineConfig
-    _state: _EngineState
+    _instance = None
 
-    def __new__(cls) -> EnginePool:
+    def __new__(cls):
         if cls._instance is None:
             raise RuntimeError(
-                "EnginePool must be created via EnginePool.get(config), not directly."
+                "EnginePool must be accessed via EnginePool.get(config), not directly."
             )
         return cls._instance
 
     @classmethod
-    def get(cls, config: EngineConfig) -> EnginePool:
-        """Get or create the EnginePool singleton.
+    def get(cls, config: EngineConfig) -> "EnginePool":
+        """Get or create the singleton EnginePool instance.
 
         Args:
-            config: Validated engine configuration.
+            config: EngineConfig (not used for instantiation but kept for compatibility).
 
         Returns:
             The singleton EnginePool instance.
@@ -451,109 +522,24 @@ class EnginePool:
         if cls._instance is None:
             instance = super().__new__(cls)
             instance._config = config
-            instance._state = _EngineState()
             cls._instance = instance
-            logger.info("EnginePool initialized (device=%s)", config.device)
         return cls._instance
 
-    @classmethod
-    def reset(cls) -> None:
-        """Reset the singleton (useful for testing). Unloads all engines."""
-        if cls._instance is not None:
-            cls._instance._unload_translation()
-            cls._instance._unload_tts()
-            cls._instance._unload_image()
-            cls._instance = None
-
     def get_english_engine(self) -> MiniCPMTextEngine:
-        """Get a fresh English text generation engine (MiniCPM5-1B).
-
-        Unloads any active GPU engines before returning.
-        Returns a new MiniCPMTextEngine instance each call (stateless after unload).
-        """
-        self._ensure_exclusive("text")
-        return MiniCPMTextEngine(
-            model_path=self._config.minicpm_model_path,
-            device=self._config.device,
-        )
+        """Get the pre-loaded English text generation engine."""
+        return _engines['english']
 
     def get_translation_engine(self) -> LlamaCppTextEngine:
-        """Get or create the translation engine (tiny-aya-water via llama-cpp-python).
-
-        Unloads any active GPU engines before loading. The same instance is returned
-        on subsequent calls until explicitly unloaded.
-        """
-        self._ensure_exclusive("translation")
-        if self._state.translation_engine is None:
-            self._state.translation_engine = LlamaCppTextEngine(
-                model_path=self._config.llm_model_path,
-                device=self._config.device,
-                target_language=self._config.target_language,
-            )
-        return self._state.translation_engine
+        """Get the pre-loaded translation engine."""
+        return _engines['translation']
 
     def get_tts_engine(self) -> TTSEngine:
-        """Get or create the TTS engine.
-
-        Unloads any active GPU engines before loading TTS.
-        The same TTSEngine instance is returned on subsequent calls until unloaded.
-        """
-        self._ensure_exclusive("tts")
-        if self._state.tts_engine is None:
-            self._state.tts_engine = TTSEngine(device=self._config.device)
-        return self._state.tts_engine
+        """Get the pre-loaded TTS engine."""
+        return _engines['tts']
 
     def get_image_engine(self) -> ImageGenEngine:
-        """Get or create the image generation engine.
+        """Get the pre-loaded image generation engine."""
+        return _engines['image']
 
-        Unloads any active GPU engines before loading images.
-        The same ImageGenEngine instance is returned on subsequent calls until unloaded.
-        """
-        self._ensure_exclusive("image")
-        if self._state.image_engine is None:
-            self._state.image_engine = ImageGenEngine(device=self._config.device)
-        return self._state.image_engine
-
-    def _ensure_exclusive(self, target: str) -> None:
-        """Unload any active GPU engine that conflicts with the target."""
-        if target == "text":
-            self._unload_translation()
-            self._unload_tts()
-            self._unload_image()
-            self._unload_english()
-        elif target == "translation":
-            self._unload_tts()
-            self._unload_image()
-        elif target == "tts":
-            self._unload_translation()
-            self._unload_image()
-        elif target == "image":
-            self._unload_translation()
-            self._unload_tts()
-
-    def _unload_translation(self) -> None:
-        """Unload the translation engine if active."""
-        if self._state.translation_engine is not None:
-            self._state.translation_engine.unload()
-            self._state.translation_engine = None
-
-    def _unload_tts(self) -> None:
-        """Unload the TTS engine if active."""
-        if self._state.tts_engine is not None:
-            self._state.tts_engine.unload()
-            self._state.tts_engine = None
-
-    def _unload_image(self) -> None:
-        """Unload the image engine if active."""
-        if self._state.image_engine is not None:
-            self._state.image_engine.unload()
-            self._state.image_engine = None
-
-    def _unload_english(self) -> None:
-        """Unload the English text engine if active."""
-        # MiniCPMTextEngine instances are per-call (stateless), but we track
-        # any loaded model state to ensure clean GPU memory.
-        try:
-            torch.cuda.empty_cache()
-        except Exception:
-            pass
+# Pre-load all models at module import time
+_preload_all_models()

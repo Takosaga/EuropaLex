@@ -88,14 +88,4 @@ class ImageGenEngine:
 
         return ImageResult(image_paths=list(image_paths))
 
-    def unload(self) -> None:
-        """Unload the pipeline and free GPU memory."""
-        if self._pipeline is not None:
-            del self._pipeline
-            self._pipeline = None
-            self._loaded = False
-            try:
-                torch.cuda.empty_cache()
-            except Exception:
-                pass
-            logger.info("Flux2Klein pipeline unloaded")
+
